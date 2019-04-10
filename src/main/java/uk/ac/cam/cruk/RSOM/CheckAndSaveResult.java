@@ -225,7 +225,7 @@ public class CheckAndSaveResult implements PlugIn{
 			return true;
 		} catch (IOException e) {
 			e.printStackTrace();
-			IJ.log("Slice-wise result saving error!");
+			IJ.log("slice-wise result saving error!");
 			return false;
 		}
 		
@@ -375,7 +375,7 @@ public class CheckAndSaveResult implements PlugIn{
 			return true;
 		} catch (IOException e) {
 			e.printStackTrace();
-			IJ.log("ROI-wise result saving error!");
+			IJ.log("object2D-wise result saving error!");
 			return false;
 		}
 		
@@ -569,7 +569,7 @@ public class CheckAndSaveResult implements PlugIn{
 			return true;
 		} catch (IOException e) {
 			e.printStackTrace();
-			IJ.log("Object-wise result saving error!");
+			IJ.log("object3D-wise result saving error!");
 			return false;
 		}
 		
@@ -645,7 +645,7 @@ public class CheckAndSaveResult implements PlugIn{
 					+ "plugin runtime:, " + duration
 					+ '\n';
 
-		String inputImageString = "input image stack:," + ris.imageName + '\n'
+		String inputImageString = "input image stack:," + ris.sampleCode + '\n'
 					+ "file path:," + ris.filePath + '\n'
 					+ "stack is image sequence:," + (ris.isSequence?"YES":"NO") + '\n'
 					+ "stack is transposed:," + (ris.isTransposed?"YES":"NO") 
@@ -692,48 +692,32 @@ public class CheckAndSaveResult implements PlugIn{
 	public static void makeResultPaths (
 			RsomImageStack ris
 			) {
-		if (!resultDirExist(ris)) makeDir(ris);
-		String resultDir = ris.resultDir;
-		String imageName = ris.nameValid(ris.imageName);
-		
-		ris.executionLogPath =resultDir + File.separator + "execution_log.csv";
-		ris.maskPath = resultDir + File.separator + imageName + "_mask.zip";
-		ris.objectMapPath = resultDir + File.separator + imageName + "_objectMap.tiff";
-		ris.roiPath = resultDir + File.separator + imageName + "_Roiset.zip";
-		ris.selectionPath = resultDir + File.separator + imageName + "_selection3D.zip";
-		ris.diameterMapPath = resultDir + File.separator + imageName + "_diameterMap.tiff";
-		ris.resultSlicePath = resultDir + File.separator + imageName + "_slice-wise.csv";
-		ris.resultRoiPath = resultDir + File.separator + imageName + "_ROI-wise.csv";
-		ris.resultObjectPath = resultDir + File.separator + imageName + "_object-wise.csv";
-		ris.resultHistogramPath = resultDir + File.separator + imageName + "_histogram.png";
-	}
-	
-	
-	public static void makeDir (
-			RsomImageStack ris
-			) {
-		if (resultDirExist(ris)) return;
-		
-		if (!ris.imageOnDisk) {
-			FileSaver fs = new FileSaver(ris.RSOMImg);
-			if (!fs.saveAsTiff()) return;
-			ris.dirPath = IJ.getDirectory("image");
-			ris.imageTitle = ris.RSOMImg.getTitle();
-			ris.imageName = ris.RSOMImg.getShortTitle();
+		if (!resultDirExist(ris)) {
+			File f = new File(ris.resultDir);
+			if (!f.exists()) {
+	            if(!f.mkdirs()) {
+	            	IJ.error("File save error","Can not create result folder!");
+	            }
+			}
+			ris.resultDirExist = true;
 		}
 		
-		String fileName = FilenameUtils.removeExtension(ris.imageTitle);
-		ris.resultDir = ris.dirPath + File.separator + fileName + "_result";
-		File f = new File(ris.resultDir);
-		if (!f.exists()) {
-            if(!f.mkdir()) {
-            	IJ.error("File save error","Can not create result folder!");
-            }
-		}
-		ris.resultDirExist = true;
-		return;
+		ris.sampleCode = ris.nameValid(ris.sampleCode);
+		
+		ris.executionLogPath = ris.resultDir + File.separator + "execution_log.csv";
+		ris.maskPath = ris.resultDir + File.separator + ris.sampleCode + "_mask.zip";
+		ris.objectMapPath = ris.resultDir + File.separator + ris.sampleCode + "_objectMap.tiff";
+		ris.roiPath = ris.resultDir + File.separator + ris.sampleCode + "_object2D.zip";
+		ris.manualROIPath = ris.resultDir + File.separator + ris.sampleCode + "_manualROI.zip";
+		ris.selectionPath = ris.resultDir + File.separator + ris.sampleCode + "_selection3D.zip";
+		ris.diameterMapPath = ris.resultDir + File.separator + ris.sampleCode + "_diameterMap.tiff";
+		ris.resultSlicePath = ris.resultDir + File.separator + ris.sampleCode + "_slice-wise.csv";
+		ris.resultRoiPath = ris.resultDir + File.separator + ris.sampleCode + "_object2D-wise.csv";
+		ris.resultObjectPath = ris.resultDir + File.separator + ris.sampleCode + "_object3D-wise.csv";
+		ris.resultHistogramPath = ris.resultDir + File.separator + ris.sampleCode + "_histogram.png";
 	}
 	
+
 	public static boolean processed(
 			RsomImageStack ris
 			) {
@@ -1044,7 +1028,7 @@ public class CheckAndSaveResult implements PlugIn{
 		if (dia != null) {dia.flush(); dia.close();} 
 		// return original RoiManager, modify exist=true, append = false (overwrite)
 		// revert original display mode: hide or show
-		RoiManagerUtility.roiArrayToManager(oriRois, true, false);
+		RoiManagerUtility.roiArrayToManager(oriRois, false);
 		RoiManagerUtility.setLocation(rmLocation);
 		if (RoiManagerUtility.isOpen()) {
 			if (rmHidden) RoiManagerUtility.hideManager();

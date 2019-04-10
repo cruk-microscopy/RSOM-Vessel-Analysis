@@ -1,8 +1,15 @@
 package uk.ac.cam.cruk.RSOM;
 
+import java.awt.BorderLayout;
 import java.awt.Color;
+import java.awt.Container;
 import java.awt.Point;
 import java.io.File;
+
+import javax.swing.BorderFactory;
+import javax.swing.JFrame;
+import javax.swing.JProgressBar;
+import javax.swing.border.Border;
 
 import org.scijava.prefs.DefaultPrefService;
 import org.scijava.vecmath.Color3f;
@@ -11,9 +18,7 @@ import fiji.util.gui.GenericDialogPlus;
 import ij.IJ;
 import ij.ImageJ;
 import ij.ImagePlus;
-import ij.Undo;
 import ij.WindowManager;
-import ij.gui.ImageCanvas;
 import ij.gui.NewImage;
 import ij.gui.PolygonRoi;
 import ij.gui.Roi;
@@ -34,7 +39,8 @@ public class CreateRoiMaskImage implements PlugIn {
 	
 	protected static String filePath;
 	protected Boolean isImageSequence;
-	protected static String roiPath;
+	protected static String roiPath1 = "or use current ROI Manager";
+	protected static String roiPath2 = "or use current ROI Manager";
 	protected static Boolean fillRoi = true;
 	protected static float transparency;
 	protected RoiManager rmSelection;
@@ -43,16 +49,43 @@ public class CreateRoiMaskImage implements PlugIn {
 	protected static String[] Colors = {"RED", "YELLOW", "GREEN", "BLUE",
 	"MAGENTA", "PINK", "CYAN", "ORANGE", "WHITE", "BLACK", "GRAY"};
 	protected static int colorIndexVessel = 0;
-	protected static int colorIndexSelection = 1;
+	protected static int colorIndexSelection1 = 1;
+	protected static int colorIndexSelection2 = 6;
 	protected static Color colorVessel;
-	protected static Color colorSelection;
-	protected static Boolean do3D = true;
-	protected static Boolean doCalibration = true;
+	protected static Color colorSelection1;
+	protected static Color colorSelection2;
+	protected static Boolean do3D = false;
+	protected static Boolean doCalibration = false;
 	protected int activeImgCount = WindowManager.getImageCount();
 	protected int[] wList = WindowManager.getIDList();
 	protected String[] imgTitles;
 	protected boolean getActiveImage = false;
 	protected int activeImgNum = -1;
+	
+	public String[] RoiManagerList() {
+		/*
+		int activeImgCount = WindowManager.getImageCount();
+		if (activeImgCount == 0) {
+			String[] titles = new String[1];
+			titles[0] = "open image on disk";
+			return titles;
+		} else {
+			int[] wList = WindowManager.getIDList();
+			String[] titles = new String[wList.length+1];
+			titles[0] = "open image on disk";
+			for (int i=0; i<wList.length; i++) {
+				ImagePlus imp = WindowManager.getImage(wList[i]);
+				titles[i+1] = imp!=null?imp.getTitle():"";	
+			}
+			return titles;
+		}	
+		*/
+		int numOpenImg = WindowManager.getImageCount();
+		String[] titles = new String[numOpenImg+1];
+		titles[0] = "Use current ROI Manager";
+		System.arraycopy(WindowManager.getImageTitles(), 0, titles, 1, numOpenImg);
+		return titles;
+	}
 	
 	public ImagePlus addDialog() {
 		GenericDialogPlus gd = new GenericDialogPlus("3D selection check");
@@ -61,22 +94,27 @@ public class CreateRoiMaskImage implements PlugIn {
 			gd.addChoice("Get active image", imgTitles, imgTitles[activeImgCount]);
 		}
 		gd.addDirectoryOrFileField("Open image on disk", filePath);
-		gd.setInsets(0,168,0);
+		gd.setInsets(0,137,0);
 		gd.addCheckbox("Use image calibration", doCalibration);
-		gd.setInsets(20,168,0);
-		gd.addCheckbox("Use current ROI Manager", getActiveRoi);
-		gd.addFileField("Load 3D selection from disk", roiPath);
-		gd.setInsets(0,168,0);
-		gd.addCheckbox("Fill top and bottom ROI", fillRoi);
-		gd.addToSameRow();
-		gd.addNumericField("transparency:", transparency, 1, 3, "%");
+		//gd.setInsets(20,168,0);
+		//gd.addCheckbox("Use current ROI Manager", getActiveRoi);
+		
+		gd.addFileField("Load ROI from disk", "or use current ROI Manager");
+		gd.addFileField("Load ROI from disk", roiPath2);
+		
+		gd.setInsets(0,137,0);
+		gd.addCheckbox("Fill ROI", fillRoi);
+		//gd.addToSameRow();
+		gd.addSlider("opaque - transparent", 0, 100, transparency);
+		//gd.addNumericField("transparency:", transparency, 1, 3, "%");
 		String[] visOptions = {"RGB merged","selection as Overlay"
 				, "multi-channel composite"};
 		gd.setInsets(20,0,5);
 		gd.addChoice("Visualization option", visOptions, visOptions[visOption]);
 		gd.addChoice("Color of vessel image:", Colors, Colors[colorIndexVessel]);
-		gd.addChoice("Color of selection:", Colors, Colors[colorIndexSelection]);
-		gd.setInsets(0,168,0);
+		gd.addChoice("Color ROI 1:", Colors, Colors[colorIndexSelection1]);
+		gd.addChoice("Color ROI 2:", Colors, Colors[colorIndexSelection2]);
+		gd.setInsets(0,137,0);
 		gd.addCheckbox("Create 3D rendering", do3D);
 		gd.showDialog();
 		
@@ -88,13 +126,17 @@ public class CreateRoiMaskImage implements PlugIn {
 		}
 		filePath = gd.getNextString();
 		doCalibration = gd.getNextBoolean();
-		getActiveRoi = gd.getNextBoolean();
-		roiPath = gd.getNextString();
+		//getActiveRoi = gd.getNextBoolean();
+		//boolean doRoi1 = gd.getNextBoolean();
+		roiPath1 = gd.getNextString();
+		roiPath2 = gd.getNextString();
+		
 		fillRoi = gd.getNextBoolean();
 		transparency = (float)gd.getNextNumber();
 		visOption = gd.getNextChoiceIndex();
 		colorIndexVessel = gd.getNextChoiceIndex();
-		colorIndexSelection = gd.getNextChoiceIndex();
+		colorIndexSelection1 = gd.getNextChoiceIndex();
+		colorIndexSelection2 = gd.getNextChoiceIndex();
 		do3D = gd.getNextBoolean();
 		if (gd.wasCanceled()) return null;
 		
@@ -117,7 +159,8 @@ public class CreateRoiMaskImage implements PlugIn {
 			}
 		}
 		colorVessel = getColorFromString(Colors[colorIndexVessel]);
-		colorSelection = getColorFromString(Colors[colorIndexSelection]);
+		colorSelection1 = getColorFromString(Colors[colorIndexSelection1]);
+		colorSelection2 = getColorFromString(Colors[colorIndexSelection2]);
 		
 		if (fillRoi) {
 			transparency = transparency<0?0:transparency;
@@ -175,6 +218,8 @@ public class CreateRoiMaskImage implements PlugIn {
 		return p;
 		//imp.setRoi(p);
 	}
+	
+	
 	public static Color getColorFromString (String col) {
 		Color color = Color.WHITE;
 		switch (col) {
@@ -215,84 +260,78 @@ public class CreateRoiMaskImage implements PlugIn {
 	    return color;
 	}
 	
-	
-	public static RoiManager modify3DSelection (
+	public static Roi[] modify3DSelection (
 			ImagePlus imp,
-			RoiManager inputRoi,
+			Roi[] inputRoi,
 			Boolean fill,
+			Color selectionColor,
 			Float alpha
 			) {
 		
-		inputRoi.runCommand("Sort");
-		int nROI = inputRoi.getCount();
+		if (inputRoi == null)	return null;
 		
-		for (int i=0; i<nROI; i++) {
-			Roi r = inputRoi.getRoi(i);
-			if (r.getType() == Roi.LINE || 
-					r.getType() == Roi.POINT || 
-					r.getType() == Roi.FREELINE) {
-				inputRoi.runCommand("Delete");
-			}
-			if (r.getType() == Roi.POLYGON) {
-				/*	low level, incomplete implementation
-				FloatPolygon poly = r.getInterpolatedPolygon(0.5, true);
-				Roi p = new PolygonRoi(poly,Roi.POLYGON);
-				if (r.getStroke()!=null)
-					p.setStrokeWidth(r.getStrokeWidth());
-				p.setStrokeColor(r.getStrokeColor());
-				p.setName(r.getName());
-				inputRoi.setRoi(p, i);
-				*/
-				inputRoi.select(imp, i);
-				r = interpolate(r, 1.0, true);
-				//IJ.run(imp, "Interpolate", "interval=1 smooth");
-				inputRoi.runCommand(imp, "Update");
-			}
+		RoiManager rm = RoiManager.getInstance2();
+		if (rm==null) rm = new RoiManager();
+		rm.reset();
+		rm.setVisible(false);
+		
+		RoiManagerUtility.roiArrayToManager(inputRoi, false);
+		for (int i=0; i<rm.getCount(); i++) {
+			rm.select(imp, i);
+			rm.getRoi(i).setPosition(imp);
 		}
-		
-		if (!RoiManagerUtility.isInterpolatable()) {
-			IJ.error("current ROI Manager is not suitable for 3D selection check.");
-			return null;
-		}
-		
-		inputRoi.runCommand(imp, "Sort");
-		inputRoi.runCommand(imp, "Interpolate ROIs");
-		inputRoi.runCommand(imp, "Sort");
 		
 		if (fill) {
 			Color fillColor = new Color(
-					colorSelection.getColorSpace(),
-					colorSelection.getRGBColorComponents(null),
+					selectionColor.getColorSpace(),
+					selectionColor.getRGBColorComponents(null),
 					alpha); // alpha level 1.0 = opaque
-			Roi rTop = inputRoi.getRoi(0);
-			rTop.setFillColor(fillColor);
-			inputRoi.setRoi(rTop, 0);
-			Roi rBottom = inputRoi.getRoi(inputRoi.getCount()-1);
-			rBottom.setFillColor(fillColor);
-			inputRoi.setRoi(rBottom, inputRoi.getCount()-1);
-			inputRoi.runCommand(imp, "Sort");
+			int nROI = rm.getCount();
+			int sliceStep = 0; int currentSlice = 0;
+			for (int i=0; i<nROI; i++) {
+				rm.select(imp, i);
+				sliceStep = imp.getCurrentSlice() - currentSlice;
+				currentSlice = imp.getCurrentSlice();
+				if (sliceStep>1 || i==0 || i==(nROI-1)) {
+				//if (sliceStep!=1) {	// trick to detect non-continuous slice to fill
+					rm.getRoi(i).setFillColor(fillColor);
+				}
+			}
 		}
 		
-		return inputRoi;
+		for (int i=0; i<rm.getCount(); i++) {
+			rm.select(imp, i);
+			rm.getRoi(i).setPosition(imp);
+		}
+		Roi[] roiArray = rm.getRoisAsArray();
+		rm.reset();
+		return roiArray;
 	}
 	
 	public ImagePlus doRGBMerge(
 			ImagePlus vessel,
 			Boolean calibrate,
-			RoiManager rm,
+			Roi[] inputROI1,	//null for empty channel
+			Roi[] inputROI2,	//null for empty channel
 			Boolean fill,
 			Float trans,
 			Color colorVessel,
-			Color colorSelection,
+			Color colorSelection1,
+			Color colorSelection2,
 			int visOption
 			) {
+		
 		Float alpha = 1-trans/100;
-		rm = modify3DSelection(vessel, rm, fill, alpha);
-		int nROI = rm.getCount();
+		
+		Roi[] modifiedROI1 = modify3DSelection(vessel, inputROI1, fill, colorSelection1, alpha);
+		Roi[] modifiedROI2 = modify3DSelection(vessel, inputROI2, fill, colorSelection2, alpha);
+		
+		//int nROI = rm.getCount();
 		// if (!getActiveRoi) rm.setVisible(false);
+		
 		vessel.deleteRoi();
-		Duplicator dp = new Duplicator();
-		ImagePlus vesselChannel = dp.run(vessel);
+		//Duplicator dp = new Duplicator();
+		ImagePlus vesselChannel = new Duplicator().run(vessel);
 		//vesselChannel.getWindow().setVisible(false);
 		if (!calibrate) {
 			vesselChannel.getCalibration().pixelWidth = 1;
@@ -319,13 +358,19 @@ public class CreateRoiMaskImage implements PlugIn {
 			//ce.stretchHistogram(vesselChannel,0.01);
 			//ce.equalize(vesselChannel);
 		}
-		StackConverter sc = new StackConverter(vesselChannel);
-		sc.convertToGray8();
+		
+		new StackConverter(vesselChannel).convertToGray8();
 		LUT lutVessel = LUT.createLutFromColor(colorVessel);
 		vesselChannel.setLut(lutVessel);
+		
 		int [] dim = vesselChannel.getDimensions();
 		Color roiDefaultColor = Roi.getColor();
+		RoiManager rm = RoiManager.getInstance2();
+		if (rm==null) rm = new RoiManager();
+		
+		
 		switch (visOption) {
+		
 		case 0: //RGB
 			/*	Use RoiManager to create RGB image
 			 *  will not work with 3D convex hull;
@@ -334,38 +379,27 @@ public class CreateRoiMaskImage implements PlugIn {
 			 *  	RoiManager.draw() only draw outline without fill;
 			 *  	imp.flattenStack() has bug with RGB stack;
 			 *  	imp.flatten() need updateImage on every slice; 
-			Color defaultForegroundColor = Toolbar.getForegroundColor();
-			Toolbar.setForegroundColor(colorSelection);
-			sc = new StackConverter(vesselChannel);
-			sc.convertToRGB();
-			ImagePlus imp2;
-			int s = 0;
-			for (int i=0; i<nROI; i++) {
-				IJ.log("debug, rm i:" + String.valueOf(i));
-				vesselChannel.killRoi();
-				rm.select(vesselChannel, i);
-				vesselChannel.updateAndDraw();
-				s = vesselChannel.getZ();
-				IJ.log("debug, vessel channel z:" + String.valueOf(s));
-				imp2 = vesselChannel.flatten();
-				vesselChannel.getStack().setProcessor(imp2.getProcessor(),s);
-				imp2.flush();	
-			}
-			Toolbar.setForegroundColor(defaultForegroundColor);
-			vesselChannel.setTitle("_RGB"); 
-			return vesselChannel;
-			*/
-			
-			/* Make use of overlay as intermediate stack to
+			 *  
+			 * Make use of overlay as intermediate stack to
 			 * create RGB stack. Use imp.flatten() to generate
 			 * RGB slice-wise and append to new RGB stack
 			 */
-			Roi.setColor(colorSelection);
-			//vesselChannel.hide();
-			rm.moveRoisToOverlay(vesselChannel);
-			vesselChannel.getOverlay().setStrokeColor(colorSelection);
+			if (modifiedROI1!=null) {
+				Roi.setColor(colorSelection1);
+				RoiManagerUtility.roiArrayToManager(modifiedROI1, false); // modify exist, not append
+				rm = RoiManager.getInstance2();
+				rm.moveRoisToOverlay(vesselChannel);
+				vesselChannel.getOverlay().setStrokeColor(colorSelection1);
+			}
+			if (modifiedROI2 !=null) {
+				Roi.setColor(colorSelection2);
+				RoiManagerUtility.roiArrayToManager(modifiedROI2, false); // modify exist, not append
+				rm = RoiManager.getInstance2();
+				rm.moveRoisToOverlay(vesselChannel);
+				vesselChannel.getOverlay().setStrokeColor(colorSelection2);
+			}
 			Roi.setColor(roiDefaultColor);
-			sc.convertToRGB();
+			new StackConverter(vesselChannel).convertToRGB();
 			
 			//vesselChannel.show();
 			int z = vesselChannel.getNSlices();
@@ -381,48 +415,106 @@ public class CreateRoiMaskImage implements PlugIn {
 			rgb.setCalibration(vesselChannel.getCalibration());
 			vesselChannel.close();
 			vesselChannel.flush();
-			rgb.show();
+			//rgb.show();
 			return rgb;
 		case 1:	//selection as overlay
-			Roi.setColor(colorSelection);
-			rm.moveRoisToOverlay(vesselChannel);
-			vesselChannel.getOverlay().setStrokeColor(colorSelection);
+			
+			if (modifiedROI1!=null) {
+				Roi.setColor(colorSelection1);
+				RoiManagerUtility.roiArrayToManager(modifiedROI1, false); // modify exist, not append
+				rm = RoiManager.getInstance2();
+				rm.moveRoisToOverlay(vesselChannel);
+				vesselChannel.getOverlay().setStrokeColor(colorSelection1);
+			}
+			if (modifiedROI2!=null) {
+				Roi.setColor(colorSelection2);
+				RoiManagerUtility.roiArrayToManager(modifiedROI2, false); // modify exist, not append
+				rm = RoiManager.getInstance2();
+				rm.moveRoisToOverlay(vesselChannel);
+				vesselChannel.getOverlay().setStrokeColor(colorSelection2);
+			}
 			Roi.setColor(roiDefaultColor);
+			
 			vesselChannel.setTitle("_Overlay");
-			//vesselChannel.getWindow().setVisible(true);
 			return vesselChannel;
 		case 2: //composite
-			ImagePlus selectionChannel = NewImage.createByteImage(
-					"3D selection mask", dim[0], dim[1], dim[3], NewImage.FILL_BLACK);
-			if (calibrate) {
-				selectionChannel.setCalibration(vessel.getCalibration());
-			}
-			Toolbar.setForegroundColor(Color.WHITE);
-			for (int i=0; i<nROI; i++) {
-				rm.select(selectionChannel, i);
-				if (i == 0 || i == nROI-1) {
-					if (fill) {
-						int fillValue = (int)(255 * alpha);
-						selectionChannel.getProcessor().setColor(fillValue);
-						selectionChannel.getProcessor().fill(rm.getRoi(i));
-					}
-				}
-				rm.runCommand(selectionChannel,"Draw");
-			}
-			LUT lutSelection = LUT.createLutFromColor(colorSelection);
-			selectionChannel.setLut(lutSelection);
+			
+			ImagePlus selectionChannel1 = createSelectionImageStack(vessel, calibrate, fill, alpha, colorSelection1, modifiedROI1);
+			ImagePlus selectionChannel2 = createSelectionImageStack(vessel, calibrate, fill, alpha, colorSelection2, modifiedROI2);	
+			
 			vesselChannel.setLut(lutVessel);
+			
 			ImagePlus multiChannelComposite = RGBStackMerge.mergeChannels(
-					new ImagePlus[]{vesselChannel, selectionChannel}, false);
+					new ImagePlus[]{vesselChannel, selectionChannel1, selectionChannel2}, false);
+
 			if (calibrate) {
 				multiChannelComposite.setCalibration(vessel.getCalibration());
 			}
 			vesselChannel.close(); //vesselChannel.flush();
-			selectionChannel.close(); //selectionChannel.flush();
+			if (selectionChannel1!=null) selectionChannel1.close(); //selectionChannel.flush();
+			if (selectionChannel2!=null) selectionChannel2.close();
+			
+			Roi.setColor(roiDefaultColor);
+			
 			multiChannelComposite.setTitle("_Composite");
 			return multiChannelComposite;
 		}
 		return null;
+	}
+	
+	public ImagePlus createSelectionImageStack (
+			ImagePlus imp,
+			Boolean calibrate,
+			Boolean fill,
+			double alpha,
+			Color colorSelection,
+			Roi[] roiArray
+			) {
+		if (roiArray==null) return null;
+		
+		int [] dim = imp.getDimensions();
+		ImagePlus selectionChannel = NewImage.createByteImage(
+				"selectionChannel", dim[0], dim[1], dim[3], NewImage.FILL_BLACK);
+		if (calibrate) {
+			selectionChannel.setCalibration(imp.getCalibration());
+		}
+		Toolbar.setForegroundColor(Color.WHITE);
+		
+		
+		RoiManager rm = RoiManager.getInstance2();
+		rm.reset();
+		RoiManagerUtility.roiArrayToManager(roiArray, false); // modify exist, not append
+
+		// above 3 lines have bug preventing selection to be displayed on each slice
+		/*
+		for (int i=0; i<rm.getCount(); i++) {
+			if (rm.getRoi(i).getFillColor() != null) {
+				int fillValue = (int)(255 * alpha);
+				selectionChannel.getProcessor().setColor(fillValue);
+				selectionChannel.getProcessor().fill(rm.getRoi(i));
+			}
+			rm.runCommand(selectionChannel,"Draw");
+		}
+		*/
+		int step = 0; int currentSlice = 0;
+		for (int i=0; i<rm.getCount(); i++) {
+			rm.select(selectionChannel, i);
+			step = selectionChannel.getCurrentSlice() - currentSlice;
+			currentSlice = selectionChannel.getCurrentSlice();
+			if (step>1 || i==0 || i==rm.getCount()-1) {
+				if (fill) {
+					int fillValue = (int)(255 * alpha);
+					selectionChannel.getProcessor().setColor(fillValue);
+					selectionChannel.getProcessor().fill(rm.getRoi(i));
+				}
+			}
+			rm.runCommand(selectionChannel,"Draw");
+		}
+		
+		
+		LUT lutSelection = LUT.createLutFromColor(colorSelection);
+		selectionChannel.setLut(lutSelection);
+		return selectionChannel;
 	}
 	
 	
@@ -445,35 +537,56 @@ public class CreateRoiMaskImage implements PlugIn {
 		ImagePlus maskImg = addDialog();
 		if (maskImg == null) return;
 		
+		Roi[] originalRoiArray = null;
+		boolean managerOpen = true;
+		RoiManager rm = RoiManager.getInstance2();
+		if (rm==null) {
+			managerOpen = false;
+			rm = new RoiManager();
+		} else {
+			originalRoiArray = rm.getRoisAsArray();
+		}
+		Point rmLocation = rm.getLocation();
+		rm.setVisible(false);
+		rm.reset();
 		
-		// prepare RoiManager for operation
-		rmSelection = RoiManager.getInstance2();
-		Roi[] oriRois = null; Boolean rmHidden = false; Point rmLocation = null;
-		if (RoiManagerUtility.isOpen() && !RoiManagerUtility.isEmpty()) {
-			oriRois = RoiManagerUtility.managerToRoiArray();
-			rmHidden = RoiManagerUtility.isHidden();
-			rmLocation = RoiManagerUtility.getLocation();
+		Roi[] selection1 = null;
+		Roi[] selection2 = null;
+		// check first ROI entry
+		if (roiPath1!=null && roiPath1.length()!=0) {
+			if (roiPath1.equals("or use current ROI Manager")) {
+				selection1 = originalRoiArray;
+			} else {
+				rm.runCommand("Open",roiPath1);
+				// code to make sure the selection is correctly associated with a slice position on the image
+				for (int i=0; i<rm.getCount(); i++) {
+					rm.select(maskImg, i);
+					rm.getRoi(i).setPosition(maskImg);
+				}
+				selection1 = rm.getRoisAsArray();
+			}
 		}
-		RoiManagerUtility.hideManager();
-		if (!getActiveRoi) {
-			RoiManagerUtility.resetManager();
-			rmSelection = RoiManager.getInstance2();
-			IJ.redirectErrorMessages();
-			rmSelection.runCommand("Open",roiPath);
-		}
-		if (!RoiManagerUtility.isInterpolatable()) {
-			IJ.error("ROI Manager is not suitable for 3D selection check.");
-			RoiManagerUtility.roiArrayToManager(oriRois, true, false);
-			RoiManagerUtility.setLocation(rmLocation);
-			if (!rmHidden) RoiManagerUtility.showManager();
-			return;
+		rm.reset();
+		if (roiPath2!=null && roiPath2.length()!=0) {
+			if (roiPath2.equals("or use current ROI Manager")) {
+				selection2 = originalRoiArray;
+			} else {
+				rm.runCommand("Open",roiPath2);
+				// code to make sure the selection is correctly associated with a slice position on the image
+				for (int i=0; i<rm.getCount(); i++) {
+					rm.select(maskImg, i);
+					rm.getRoi(i).setPosition(maskImg);
+				}
+				// code to make sure the selection is correctly associated with a slice position on the image
+				selection2 = rm.getRoisAsArray();
+			}
 		}
 		
 		// get merged image
-		//maskImg.getWindow().setVisible(false);
 		ImagePlus mergedImg = doRGBMerge(maskImg, doCalibration
-				, rmSelection, fillRoi, transparency, colorVessel
-				, colorSelection, visOption);
+				, selection1, selection2, fillRoi, transparency, colorVessel
+				, colorSelection1, colorSelection2, visOption);
+		
 		maskImg.deleteRoi(); maskImg.setOverlay(null);
 		String mergedTitle = maskImg.getShortTitle() + mergedImg.getTitle();
 		if (WindowManager.getImage(mergedTitle) != null) {
@@ -481,28 +594,30 @@ public class CreateRoiMaskImage implements PlugIn {
 		}
 		mergedImg.setTitle(mergedTitle);
 		mergedImg.show();
+		ImageJ j = IJ.getInstance();
+		mergedImg.getWindow().setLocation(j.getX()+100,j.getY()+j.getHeight()+20);	
+		//mergedImg.show();
 		
-		// do 3D if asked
+		// do 3D if specified
 		if (do3D) {
 			do3DRendering(mergedImg, 2);
 		}
 		
-		// display the input image in the end
-		//maskImg.getWindow().setVisible(true);
-		maskImg.show();
-		
-		// return original RoiManager, modify exist=true, append = false (overwrite)
-		// revert original display mode: hide or show
-		if (oriRois != null) {
-			RoiManagerUtility.resetManager();
-			RoiManagerUtility.roiArrayToManager(oriRois, true, false);
-			RoiManagerUtility.setLocation(rmLocation);
-			if (RoiManagerUtility.isOpen()) {
-				if (rmHidden) RoiManagerUtility.hideManager();
-				else RoiManagerUtility.showManager();
-			}
+		// treat the input image and RoiManager in the end
+		if (getActiveImage) {
+			maskImg.deleteRoi();
+			maskImg.changes = false;
+			maskImg.show();
+		}
+		else 
+			maskImg.close();
+		if (managerOpen) {
+			rm.reset();
+			RoiManagerUtility.roiArrayToManager(originalRoiArray, false);
+			rm.setLocation(rmLocation);
+			rm.setVisible(true);
 		} else {
-			RoiManagerUtility.showManager();
+			rm.close();
 		}
 	}
 	
@@ -514,13 +629,14 @@ public class CreateRoiMaskImage implements PlugIn {
 		DefaultPrefService dps = new DefaultPrefService();
 		filePath = dps.get(String.class, "persistedString", filePath);
 		doCalibration = dps.getBoolean(Boolean.class, "persistedBoolean", doCalibration);
-		getActiveRoi = dps.getBoolean(Boolean.class, "persistedBoolean", getActiveRoi);
-		roiPath = dps.get(String.class, "persistedString", roiPath);
+		//getActiveRoi = dps.getBoolean(Boolean.class, "persistedBoolean", getActiveRoi);
+		roiPath2 = dps.get(String.class, "persistedString", roiPath2);
 		fillRoi = dps.getBoolean(Boolean.class, "persistedBoolean", fillRoi);
 		transparency = dps.getFloat(Float.class, "persistedFloat", transparency);
 		visOption = dps.getInt(Integer.class, "persistedDouble", visOption);
 		colorIndexVessel = dps.getInt(Integer.class, "persistedDouble", colorIndexVessel);
-		colorIndexSelection = dps.getInt(Integer.class, "persistedDouble", colorIndexSelection);
+		colorIndexSelection1 = dps.getInt(Integer.class, "persistedDouble", colorIndexSelection1);
+		colorIndexSelection2 = dps.getInt(Integer.class, "persistedDouble", colorIndexSelection2);
 		do3D = dps.getBoolean(Boolean.class, "persistedBoolean", do3D);
 
 		String [] ij_args = 
@@ -530,5 +646,16 @@ public class CreateRoiMaskImage implements PlugIn {
 		ImageJ.main(ij_args);
 		CreateRoiMaskImage np = new CreateRoiMaskImage();
 		np.run(null);
+		
+		dps.put(String.class, "persistedString", filePath);
+		dps.put(Boolean.class, "persistedBoolean", doCalibration);
+		dps.put(String.class, "persistedString", roiPath2);
+		dps.put(Boolean.class, "persistedBoolean", fillRoi);
+		dps.put(Float.class, "persistedFloat", transparency);
+		dps.put(Integer.class, "persistedDouble", visOption);
+		dps.put(Integer.class, "persistedDouble", colorIndexVessel);
+		dps.put(Integer.class, "persistedDouble", colorIndexSelection1);
+		dps.put(Integer.class, "persistedDouble", colorIndexSelection2);
+		dps.put(Boolean.class, "persistedBoolean", do3D);
 	}
 }

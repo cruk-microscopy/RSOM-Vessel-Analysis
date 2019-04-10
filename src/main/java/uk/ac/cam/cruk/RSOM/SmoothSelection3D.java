@@ -1,28 +1,20 @@
 package uk.ac.cam.cruk.RSOM;
 
-import java.awt.Polygon;
-import java.awt.geom.Point2D;
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.Comparator;
-import java.util.List;
+import java.io.File;
+import java.io.IOException;
 
 import org.scijava.prefs.DefaultPrefService;
 
-import fiji.process3d.EDT;
 import fiji.util.gui.GenericDialogPlus;
 import ij.IJ;
 import ij.ImagePlus;
 import ij.ImageStack;
 import ij.WindowManager;
-import ij.gui.OvalRoi;
 import ij.gui.Roi;
 import ij.plugin.Duplicator;
 import ij.plugin.PlugIn;
-import ij.plugin.filter.MaximumFinder;
 import ij.plugin.filter.RankFilters;
 import ij.plugin.frame.RoiManager;
-import ij.process.Blitter;
 import ij.process.ByteProcessor;
 import ij.process.ImageProcessor;
 
@@ -33,20 +25,29 @@ public class SmoothSelection3D implements PlugIn {
 
 	protected static double smoothLv = 15;
 	protected static double downSizeLv = 50;
+	protected static double shrink = 0;
 
 	public static ImagePlus managerToMask (
 			) {
-		if (RoiManagerUtility.checkManager() != 2) {
-			IJ.log("RoiManager is not suitable for 3D selection smoothing.");
+
+		
+		RoiManager rm = RoiManager.getInstance2();
+		if (rm == null) {
+			IJ.log("RoiManager is not open, ROI smoothing will not be performed");
 			return null;
 		}
-		RoiManager rm = RoiManager.getInstance2();
+		
+		rm.runCommand("Sort");
+		//rm.runCommand(imp,"Interpolate ROIs");
+		rm.runCommand("Interpolate ROIs");
+		
 		int nROI = rm.getCount();
 		
 		double maskWidth = 0;
 		double maskHeight = 0;
 		double maskDepth = 0;
 		Roi r = null;
+		
 		
 		for (int i=0; i<nROI; i++) {
 			r = rm.getRoi(i);
@@ -59,8 +60,9 @@ public class SmoothSelection3D implements PlugIn {
 		maskHeight = Math.ceil(maskHeight/10)*10;
 		maskDepth = Math.ceil(maskDepth/10)*10;
 		
-		//ImagePlus maskFromRoiManager = IJ.createImage("maskFromRoiManager", "8-bit black", (int)maskWidth, (int)maskHeight, (int)maskDepth);
-		ImagePlus maskFromRoiManager = IJ.createImage("maskFromRoiManager", "8-bit black", 600, 600, 924);
+		
+		ImagePlus maskFromRoiManager = IJ.createImage("maskFromRoiManager", "8-bit black", (int)maskWidth, (int)maskHeight, (int)maskDepth);
+		//ImagePlus maskFromRoiManager = IJ.createImage("maskFromRoiManager", "8-bit black", imp.getWidth(), imp.getHeight(), imp.getNSlices());
 		
 		for (int i=0; i<nROI; i++) {
 			rm.select(i);
@@ -70,8 +72,10 @@ public class SmoothSelection3D implements PlugIn {
 	}
 	
 	public static void maskToRoiManager (
-			ImagePlus mask
+			ImagePlus mask,
+			double enlargeDouble
 			) {
+		int enlarge = (int)(Math.min(enlargeDouble, 255));
 		RoiManagerUtility.resetManager();
 		RoiManager rm = RoiManager.getInstance2();
 		IJ.run("Colors...", "foreground=white background=black selection=yellow");
@@ -79,8 +83,24 @@ public class SmoothSelection3D implements PlugIn {
 			mask.setSlice(i);
 			IJ.run(mask, "Create Selection", "");
 			IJ.run(mask, "Make Inverse", "");
-			if (mask.getRoi()!=null)
-				rm.add(mask, mask.getRoi(), -1);
+
+			if (mask.getRoi()==null) {
+				continue;
+			}
+			if (enlarge != 0) {
+				int originalSize = mask.getRoi().getStatistics().pixelCount;
+				IJ.run(mask, "Enlarge...", "enlarge="+enlarge+" pixel");
+				if (enlarge < 0) {
+					int enlargedSize = mask.getRoi().getStatistics().pixelCount;
+					if (enlargedSize == originalSize) {	// shrink size large than area size, then delete the roi
+						mask.deleteRoi();
+					}
+				}
+			}
+			if (mask.getRoi()==null) {
+				continue;
+			}
+			rm.add(mask, mask.getRoi(), -1);
 		}
 	}
 	
@@ -94,7 +114,7 @@ public class SmoothSelection3D implements PlugIn {
 		int[] Zrange = new int[2];
 		double mdFilterSize = 30*smooth/100*(100-downSize)/100;
 		
-		String title = imp.getTitle();
+		//String title = imp.getTitle();
 		ImagePlus impDup = new Duplicator().run(imp, 1, imp.getNSlices());
 		//ImagePlus imp2 = imp.duplicate();
 		//imp2.hide();
@@ -102,9 +122,9 @@ public class SmoothSelection3D implements PlugIn {
 		IJ.run(impDup, "Fill Holes", "stack");
 		int oriX = impDup.getWidth();
 		int oriY = impDup.getHeight();
-		int oriC = impDup.getNChannels();
+		//int oriC = impDup.getNChannels();
 		int oriZ = impDup.getNSlices();
-		int oriT = impDup.getNFrames();
+		//int oriT = impDup.getNFrames();
 		
 
 		int dsX = (int) Math.round(oriX*(100-downSize)/100);
@@ -115,37 +135,54 @@ public class SmoothSelection3D implements PlugIn {
 		if (downSize>0) {
 			Zrange = findbound(impDup);
 			downsizeImp = changeSize(impDup, dsX, dsY, dsZ, 1);
+		} else {
+			downsizeImp = impDup;
 		}
+		
 		
 		ImagePlus smoothXYZ = smoothSelectionCorners(downsizeImp, smooth);
 		ImagePlus impXZY = transposeStack(smoothXYZ, "XYZ to XZY");
-		smoothXYZ.changes = false; 
-		//imp2.close();
-		smoothXYZ.show();
+		//smoothXYZ.show();
 		IJ.run(impXZY, "Median...", "radius="+String.valueOf(mdFilterSize)+" stack");
-		
 		ImagePlus smoothXZY = smoothSelectionCorners(impXZY, smooth);
 		ImagePlus impZYX = transposeStack(smoothXZY, "XZY to ZYX");
-		smoothXZY.changes = false; 
-		//impXZY.close();
-		smoothXZY.show();
+		//smoothXZY.show();
 		IJ.run(impZYX, "Median...", "radius="+String.valueOf(mdFilterSize)+" stack");
-		
 		ImagePlus smoothZYX = smoothSelectionCorners(impZYX, smooth);
 		ImagePlus impXYZ = transposeStack(smoothZYX, "ZYX to XYZ");
-		smoothZYX.changes = false; 
-		//impZYX.close();
-		smoothZYX.show();
+		//smoothZYX.show();
 		IJ.run(impXYZ, "Median...", "radius="+String.valueOf(mdFilterSize)+" stack");
-
+		
 		ImagePlus upsizeImp = null;
 		if (downSize>0) {
 			upsizeImp = changeSize(impXYZ, oriX, oriY, oriZ, (downSize/10));
 			clearStack(upsizeImp, Zrange[0], Zrange[1]);
 		}
+		
+		
+		impDup.changes = false;
+		impDup.close();
+		
+		downsizeImp.changes = false;
+		downsizeImp.close();
+		
+		smoothXYZ.changes = false; 
+		smoothXYZ.close();
+		
+		impXZY.changes = false;
+		impXZY.close();
+		
+		smoothXZY.changes = false; 
+		smoothXZY.close();
+		
+		impZYX.changes = false; 
+		impZYX.close();
+		
+		smoothZYX.changes = false;
+		smoothZYX.close();
+		
 		impXYZ.changes = false; 
-		//impXYZ.close();
-		impXYZ.show();
+		impXYZ.close();
 		
 		System.gc();
 		
@@ -294,6 +331,7 @@ public class SmoothSelection3D implements PlugIn {
 		GenericDialogPlus gd = new GenericDialogPlus("Smooth 3D selection");
 		gd.addSlider("Smooth Level(%):", 0, 100, smoothLv);
 		gd.addSlider("Down-sizing Level (%):", 0, 80, downSizeLv);
+		gd.addSlider("Shrink-Enlarge (pixel)", -100, 100, shrink);
 		String html = "<html>"
 		     +"<h2>Smooth 3D selection help</h2>"
 		     +"1,	3D shape smooth level<br>"
@@ -310,8 +348,81 @@ public class SmoothSelection3D implements PlugIn {
 		
 		smoothLv = gd.getNextNumber();
 		downSizeLv = gd.getNextNumber();
+		shrink = gd.getNextNumber();
 		return true;
 		
+	}
+	
+	public static void smoothSelectionWithRoiManager(
+			//ImagePlus imp,
+			double smoothLv, 
+			double downSizeLv, 
+			double shrink
+			) {
+		
+		ImagePlus unsmoothedMask = managerToMask();
+		if (unsmoothedMask==null) return;
+		ImagePlus smoothedMask = smoothSelection3D(unsmoothedMask, smoothLv, downSizeLv, 0);
+		//unsmoothedMask.show();
+		//smoothedMask.show();
+		maskToRoiManager(smoothedMask, shrink);
+		
+		//RoiManagerUtility.hideManager();
+		unsmoothedMask.changes = false;
+		unsmoothedMask.close();
+		smoothedMask.changes = false;
+		smoothedMask.close();
+		IJ.run("Collect Garbage", "");
+		
+	}
+	
+	public static void batchRun (
+			File[] fileArray
+			) throws IOException {
+		
+		if (!addDialog())	return;
+		double start = System.currentTimeMillis();
+		// prepare RoiManager for batch processing
+		// prepare RoiManager for operation
+		RoiManager rm = RoiManager.getInstance2();
+		if (rm == null) rm = new RoiManager();
+		else rm.reset();
+		rm.setVisible(false);
+		
+		String date = GetDateAndTime.getCurrentDate();
+		String time = GetDateAndTime.getCurrentTime();
+		IJ.log("\n\nBatch Smooth 3d Selection executed at:");
+		IJ.log(date + " " + time);
+		
+		RsomImageStack RIS;
+		// process through the file list			
+		for (File f : fileArray) {
+			IJ.log(" Processing File: " + f.getName());
+			long startTime = GetDateAndTime.getCurrentTimeInMs();
+			
+			RIS = new RsomImageStack(f.getCanonicalPath());
+			//ImagePlus inputImg = RIS.RSOMImg;
+			//inputImg = RIS.RSOMImg;
+			String roiPath = RIS.manualROIPath;
+			if (!new File(roiPath).exists()) {
+				IJ.log(" Manual ROI does not exist yet, skip current File.");
+				continue;
+			}
+			rm.runCommand("Open", RIS.manualROIPath);
+			rm.runCommand(RIS.RSOMImg,"Sort");
+			rm.runCommand(RIS.RSOMImg,"Interpolate ROIs");
+			
+			smoothSelectionWithRoiManager(smoothLv, downSizeLv, shrink);
+			
+			rm.runCommand("Save", RIS.selectionPath);
+			rm.reset();
+			System.gc();
+			//RoiManagerUtility.showManager();
+			double end = System.currentTimeMillis();
+			double duration = (end-start)/1000;
+			IJ.log(" 3D selection smoothing took " + String.valueOf(duration) + " second.\n");
+		}
+	
 	}
 	
 	@Override
@@ -320,14 +431,21 @@ public class SmoothSelection3D implements PlugIn {
 		double start = System.currentTimeMillis();
 		
 		if (!addDialog())	return;
+		
+		/*
 		ImagePlus unsmoothedMask = managerToMask();
 		if (unsmoothedMask==null) return;
 		ImagePlus smoothedMask = smoothSelection3D(unsmoothedMask, smoothLv, downSizeLv, 0);
-		smoothedMask.setTitle("smoothed from plugin");
-		smoothedMask.show();
-		maskToRoiManager(smoothedMask);
-		IJ.run("Collect Garbage", "");
+		//smoothedMask.setTitle("smoothed from plugin");
+		//smoothedMask.show();
+		maskToRoiManager(smoothedMask, shrink);
+		smoothedMask.changes = false;
+		smoothedMask.close();
+		*/
+		RoiManagerUtility.hideManager();
+		smoothSelectionWithRoiManager(smoothLv, downSizeLv, shrink);
 		System.gc();
+		RoiManagerUtility.showManager();
 		
 		double end = System.currentTimeMillis();
 		double duration = (end-start)/1000;
@@ -340,12 +458,14 @@ public class SmoothSelection3D implements PlugIn {
 		DefaultPrefService prefs = new DefaultPrefService();
 		smoothLv = prefs.getDouble(Double.class, "persistedDouble", smoothLv);
 		downSizeLv = prefs.getDouble(Double.class, "persistedDouble", downSizeLv);
+		shrink = prefs.getDouble(Double.class, "persistedDouble", shrink);
 		
 		SmoothSelection3D sst = new SmoothSelection3D();
 		sst.run(null);
 		
 		prefs.put(Double.class, "persistedDouble", smoothLv);
 		prefs.put(Double.class, "persistedDouble", downSizeLv);
+		prefs.put(Double.class, "persistedDouble", shrink);
 		
 	}
 	

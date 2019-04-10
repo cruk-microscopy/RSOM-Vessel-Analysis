@@ -4,6 +4,7 @@ package uk.ac.cam.cruk.RSOM;
 //import java.awt.Color;
 import java.awt.Font;
 import java.io.File;
+import java.io.IOException;
 
 import org.scijava.prefs.DefaultPrefService;
 
@@ -16,6 +17,7 @@ import ij.gui.ImageCanvas;
 import ij.gui.PolygonRoi;
 import ij.gui.Roi;
 import ij.gui.Toolbar;
+import ij.io.FileSaver;
 import ij.measure.Calibration;
 import ij.plugin.Duplicator;
 import ij.plugin.FolderOpener;
@@ -32,11 +34,11 @@ import ij.process.ImageStatistics;
 
 public class CreateProjectionImages implements PlugIn {
 
-	protected int activeImgCount = WindowManager.getImageCount();
-	protected int[] wList = WindowManager.getIDList();
+	protected static int activeImgCount = WindowManager.getImageCount();
+	protected static int[] wList = WindowManager.getIDList();
 	protected static int activeImgNum = -1;
-	protected boolean getActiveImage = false;
-	protected Boolean isImageSequence;
+	protected static boolean getActiveImage = false;
+	protected static Boolean isImageSequence;
 	protected static String filePath;
 
 	protected static Boolean doRoi = false;
@@ -72,7 +74,7 @@ public class CreateProjectionImages implements PlugIn {
 	protected static int lutStrIdx = 1;
 	protected static String lutStr;
 	
-	public String[] activeImageList() {
+	public static String[] activeImageList() {
 		if (wList == null) return null;
 		String[] titles = new String[wList.length+1];
 		for (int i=0; i<wList.length; i++) {
@@ -83,7 +85,7 @@ public class CreateProjectionImages implements PlugIn {
 		return titles;
 	}
 	
-	public ImagePlus addDialog() {
+	public static ImagePlus addDialog() {
 		final Font highlightFont = new Font("Helvetica", Font.BOLD, 12);
 		
 		GenericDialogPlus gd = new GenericDialogPlus("Create Projection Images");
@@ -218,7 +220,7 @@ public class CreateProjectionImages implements PlugIn {
 	}
 	
 	// known issue, after execution RoiManager ROis disappear
-	public ImagePlus getRoi (
+	public static ImagePlus getRoi (
 			ImagePlus imp,
 			Boolean getCurrentRoiManager,
 			String path
@@ -327,7 +329,7 @@ public class CreateProjectionImages implements PlugIn {
 		return imp;
 	}
 	
-	public ImagePlus[] doAxisProjection (
+	public static ImagePlus[] doAxisProjection (
 			ImagePlus imp,
 			Boolean useImageLut,
 			String lut,
@@ -385,14 +387,14 @@ public class CreateProjectionImages implements PlugIn {
 		return XYZ;
 	}
 	
-	public void doZProjection (
+	public static ImagePlus[] doZProjection (
 			ImagePlus inputImp,
 			Boolean useImageLut,
 			String lut,
 			Boolean[] inputMethods) {
 		String[] methodsStr = {"max", "avg", "sum", "sd", "min", "median"};
 		ImagePlus[] all = {null, null, null, null, null, null};
-		if (inputImp == null) return;
+		if (inputImp == null) return all;
 		for (int i=0; i<inputMethods.length; i++) {
 			if (inputMethods[i]) {
 				all[i] = ZProjector.run(inputImp, methodsStr[i]);
@@ -401,10 +403,11 @@ public class CreateProjectionImages implements PlugIn {
 				} else {
 					IJ.run(all[i], lut, "");
 				}
-				all[i].show();
+				all[i].setCalibration(inputImp.getCalibration());
+				//all[i].show();
 			}
 		}
-		return;
+		return all;
 	}
 	
 	
@@ -464,10 +467,107 @@ public class CreateProjectionImages implements PlugIn {
 				XYZ[i].show();
 				XYZ[i].setZ(midSlice);
 			}
-			doZProjection(XYZ[i], useLut, lutStr, methods);
+			ImagePlus[] proj = doZProjection(XYZ[i], useLut, lutStr, methods);
+			for (int j=0; j<proj.length; j++) {
+				if (proj[j] != null)
+					proj[j].show();
+			}
 		}
 	}
 	
+	public static void batchRun(
+		File[] fileArray
+		) throws IOException {
+		
+		ImagePlus temp = addDialog();
+		temp.close();
+		RoiManager rm = RoiManager.getInstance2();
+		if (rm==null) rm = new RoiManager();
+		else rm.reset();
+
+		for (File f : fileArray) {	// file could be non-RSOM images
+			// open input image from file path, skip non-stack images
+			IJ.log("  Processing File: " + f.getName());
+			long startTime = System.currentTimeMillis();
+			ImagePlus inputImage = IJ.openImage(f.getCanonicalPath());
+			if (!inputImage.isStack()) {
+				IJ.log("   File \"" + f.getCanonicalPath() + "\" is not a stack (skipped).");
+				continue;
+			}
+			// make folder to store projection images
+			File projectionImageDir = new File(f.getParent() + File.separator + f.getName() + "_projections");
+			if (!projectionImageDir.exists())	projectionImageDir.mkdir();
+			// check image content
+			if (inputImage.getBitDepth() == 24) {
+				IJ.log("Input is RGB image:");
+				IJ.log("LUT will not be applicable.");
+				IJ.log("Created projection images will be RGB format as well.");
+				useLut = false;
+				lutStr = "Revert";	//nasty way of ignoring RGB LUT
+			} else if (inputImage.getBitDepth() == 8) {
+				ImageStatistics stats = inputImage.getStatistics();
+				if (stats.histogram[0]+stats.histogram[255]==stats.pixelCount) {
+					// binary mask LUT issue:
+					// 3D, Max, Min, Median projection images will also be binary.
+					IJ.log("Input is binary mask:");
+					IJ.log("Some LUT will not show full color range.");
+				}
+			}
+			// use 3D selection ROI to crop the input image
+			// pad with NaN or 0 background
+			if (doRoi) {
+				RsomImageStack RIS = new RsomImageStack(inputImage);
+				if (!new File(RIS.selectionPath).exists()) {
+					IJ.log("   Cannot locate ..._selection3D.zip for File \"" + f.getCanonicalPath() + "\"");
+					IJ.log("   Projection for the current file will be created based on whole images instead.");
+				} else {
+					inputImage = getRoi(inputImage, false, RIS.selectionPath);
+				}
+			}
+			inputImage.updateImage();
+			inputImage.deleteRoi();
+			
+			// calibrate input image
+			//Calibration origCal = inputImage.getCalibration();
+			if (!useCalibration) {
+				inputImage.getCalibration().pixelWidth = xCal;
+				inputImage.getCalibration().pixelHeight = yCal;
+				inputImage.getCalibration().pixelDepth = zCal;
+				inputImage.getCalibration().setUnit(unitCal);
+			}
+	
+			// do axis projection
+			ImagePlus[] XYZ = doAxisProjection(inputImage
+					, useLut, lutStr, xProject, yProject, zProject);
+			
+			//inputImage.setCalibration(origCal);
+			//inputImage.revert();
+			
+			// do projection method
+			Boolean[] methods = {maxProject, meanProject, sumProject
+					, stdevProject, minProject, medianProject};
+			for (int i=0; i<XYZ.length; i++) {
+				if (XYZ[i] == null)
+					continue;
+				if (volProject) {
+					XYZ[i].setZ(XYZ[i].getNSlices()/2);
+					if (XYZ[i]!=null) {
+						new FileSaver(XYZ[i]).saveAsTiffStack(projectionImageDir + File.separator + XYZ[i].getTitle() + ".tif");
+					}
+				}
+				ImagePlus[] proj = doZProjection(XYZ[i], useLut, lutStr, methods);
+				for (int j=0; j<proj.length; j++) {
+					if (proj[j]!=null) {
+						new FileSaver(proj[j]).saveAsTiffStack(projectionImageDir + File.separator + proj[j].getTitle() + ".tif");
+					}
+				}
+			}
+			long endTime = System.currentTimeMillis();
+			long duration = (endTime - startTime)/1000;
+			IJ.log("  File: " + f.getName() + " processed, took " + String.valueOf((endTime-startTime)/1000) + " seconds.");
+		}
+	}
+
 	public static void main(String[] args) {
 		
 		if (IJ.versionLessThan("1.52f")) System.exit(0);

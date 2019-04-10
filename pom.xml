@@ -14,7 +14,7 @@
 
 	<groupId>cruk.cam.ac.uk</groupId>
 	<artifactId>RSOM_Vessel_Analysis</artifactId>
-	<version>1.5.8</version>
+	<version>1.6.2</version>
 
 	<name>RSOM_Vessel_Analysis</name>
 	<description>An Fiji plugin to analyze RSOM images.</description>

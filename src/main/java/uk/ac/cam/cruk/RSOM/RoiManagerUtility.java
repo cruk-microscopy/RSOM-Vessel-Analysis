@@ -21,22 +21,18 @@ public class RoiManagerUtility {
 		return rois;
 	}
 	
-	public static void roiArrayToManager (
+	public static void roiArrayToManager (	//known issue, ROI slice number doesn't translate to RoiManager without active image
 			Roi[] rois,
-			Boolean modifyExist,
 			Boolean append
 			) {
 		if (rois == null) return;
-		RoiManager rm = RoiManager.getInstance();
-		int rmState = checkManager();
-		if (rmState == 2 || rmState == 4) {// RoiManager open with entry
-			if (!modifyExist) return;
-			if (!append) rm.reset();
-		} else {
-			rm = new RoiManager();
-		}
+		RoiManager rm = RoiManager.getInstance2();
+		if (rm==null) rm = new RoiManager();
+		if (!append) rm.reset();
+
 		for (int i = 0; i < rois.length; i++) {
-			rm.addRoi(rois[i]);
+			rm.add(rois[i], rois[i].getPosition());
+			//rm.addRoi(rois[i]);
 		}
 	}
 	

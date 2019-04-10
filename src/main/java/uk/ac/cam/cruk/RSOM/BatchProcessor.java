@@ -2,34 +2,31 @@ package uk.ac.cam.cruk.RSOM;
 
 import ij.IJ;
 import ij.ImagePlus;
-import ij.process.*;
 import ij.gui.*;
-import ij.util.Tools;
 import ij.io.*;
-import ij.macro.Interpreter;
 import ij.measure.Calibration;
 import ij.plugin.FolderOpener;
 import ij.plugin.PlugIn;
+import ij.plugin.frame.RoiManager;
 
 import java.awt.*;
 import java.io.*;
 import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.Collections;
-import java.util.Iterator;
 import java.util.List;
-import java.util.Vector;
+import java.nio.file.Files;
+import java.nio.file.attribute.BasicFileAttributes;
+import java.nio.file.attribute.FileTime;
 
 import org.apache.commons.io.FilenameUtils;
-import org.scijava.command.Command;
-import org.scijava.plugin.Parameter;
 import org.scijava.prefs.DefaultPrefService;
 
 import fiji.util.gui.GenericDialogPlus;
 
-/** This plugin implements the File/Batch/Macro and File/Batch/Virtual Stack commands. */
+/** This plugin implements the Batch Processing options for RSOM image processing and analysis. */
 public class BatchProcessor implements PlugIn {
 
+	protected final static long JudgementDay = 1551398400000L;	// 2019.03.01 - 00:00:00
 	protected static String rootDirPath = "I:/research/seblab/data/shared_folders/light_microscopy/Emma_Brown/Ziqiang/New images";
 	
 	protected static String[] dataFormat = {"TIFF stack", "Image Sequence", "both"};
@@ -40,21 +37,16 @@ public class BatchProcessor implements PlugIn {
 	
 	protected static String[] operations = {
 			"Clean Up Datasets",	//0
-			"Vessel diameter analysis",	//1
-			"Vessel diameter analysis with different parameters",	//2
-			"Only generate mask, diameter, and object images",	//3
-			"Get Analysis Result",	//4
+			"Vessel diameter analysis: Complete process",	//1
+			"Vessel diameter analysis: Generate mask",		//2
+			"Vessel diameter analysis: Get Analysis Result",	//3
+			"Vessel diameter analysis: Different parameters",	//4
 			"Calibrate Images",	//5
-			"Smooth 3D selection", //6
-			"Create projection images"	//7
+			"Draw manual ROI",	//6
+			"Smooth 3D selection", //7
+			"Create projection images"	//8
 			};
 	protected static int operation = 0;
-	
-	public static void batchRsomAnalysis (
-			File[] fileArray
-			) {
-		
-	}
 	
 	public static void cleanDatasets (
 			File[] fileArray
@@ -65,21 +57,40 @@ public class BatchProcessor implements PlugIn {
 		// rename image sequence (get name from parent folder)
 		// convert sequence to tiff and save
 		// rename result folder and content inside
-		
+		String messageTitle = "Clean UP Procedure";
+		String messageBody = "Clean Up Procedure as of 2019.04.09\r\n" + " \n" +
+				"* 1,   Convert image sequence to Tiff stack, rename with sample code;\r\n" + 
+				"* 2,   Tiff stack will be without any processing, and uncalibrated;\r\n" + 
+				"* 3,   Rename result folder and content inside;\r\n" + 
+				"* 4,   for ...selection3D.zip created before 2019.03.01, rename it to ...manualROI.zip;\r\n" + 
+				"* 5,   Report succeeded and failed entries in ImageJ log.";
+		YesNoCancelDialog cleanMessage = new YesNoCancelDialog(IJ.getInstance(), messageTitle, messageBody);
+		if (!cleanMessage.yesPressed()) {
+			IJ.log("Batch clean up cancelled by User.");
+			return;
+		}
 		
 		//1 take a root dir
 		String[] sampleCode = new String[fileArray.length];
 		for (int i=0; i<fileArray.length; i++) {
 			sampleCode[i] = getImageSequenceSampleCode(fileArray[i]);
 		}
-		
-			//String[] includeWords,
-				//String[] excludeWords
+		ArrayList<File> alreadyCleanedFiles = new ArrayList<File>();
+		ArrayList<File> cleanedFiles = new ArrayList<File>();
+		ArrayList<File> notCleanedFiles = new ArrayList<File>();
+		//String[] includeWords,
+		//String[] excludeWords
 		//2 locate all image sequence inside
+		boolean alreadyCleaned = true;
+		boolean renameResultFileSucceed = false;
+		boolean renameResultDirSucceed = false;
+		boolean removeOldTifSucceed = false;
+		boolean saveNewTifSucceed = false;
 		for (int i=0; i<fileArray.length; i++) {
 			if (isImageSequence(fileArray[i])) {
 				String fileName = fileArray[i].getName();// get image sequence name
 				if (fileName.contains("original"))	continue;	// skip original files
+				IJ.log("Cleaning dataset: " + fileArray[i].getCanonicalPath());
 				String code = sampleCode[i];
 				String resultPath = fileArray[i].getCanonicalPath() + "_result";
 				File resultFolder = new File(resultPath);
@@ -94,30 +105,77 @@ public class BatchProcessor implements PlugIn {
 							resultFileNameNew = resultFileNameOld.replace("result", code);
 						} else resultFileNameNew = resultFileNameOld;
 						//File newFile = new File(listOfFiles[f].getParent() + File.separator + resultFileNameNew);
-						listOfFiles[f].renameTo(new File(listOfFiles[f].getParent() + File.separator + resultFileNameNew));
+						
+						if (resultFileNameNew.contains("selection3D.zip")) {
+							BasicFileAttributes fatr = Files.readAttributes(listOfFiles[f].toPath(), BasicFileAttributes.class);
+							// change selection3D to manualROI created before 2019.03.01
+							if (fatr.creationTime().compareTo(FileTime.fromMillis(JudgementDay)) < 1) {
+								resultFileNameNew = resultFileNameNew.replace("selection3D.zip", "manualROI.zip");
+							}
+						}
+						File resultFileNew = new File(resultFileNameNew);
+						if (!resultFileNew.exists())	{
+							alreadyCleaned = false;
+							renameResultFileSucceed = listOfFiles[f].renameTo(resultFileNew);
+							if (!renameResultFileSucceed) {
+								IJ.log("   Failed to rename result file: " + listOfFiles[f].getCanonicalPath());
+							}
+						} else {
+							continue;
+						}
 					}
-					resultFolder.renameTo(new File(resultFolder.getParent() + File.separator + code + "_result"));
+					File resultDirNew = new File(resultFolder.getParent() + File.separator + code + "_result");
+					if (!resultDirNew.exists())	{
+						alreadyCleaned = false;
+						renameResultDirSucceed = resultFolder.renameTo(resultDirNew);
+						if (!renameResultDirSucceed) {
+							IJ.log("   Failed to rename result folder: " + resultFolder.getCanonicalPath());
+						}
+					}
 				}
 				String tiffStackPath = fileArray[i].getParent() + File.separator + sampleCode[i] + ".tif";
-				convertSequenceToTiffStack(fileArray[i].getCanonicalPath(), tiffStackPath);
+				File oldTiffStack = new File(fileArray[i].getParent() + File.separator + "filtered_dataset.tif");
+				if (oldTiffStack.exists()) {
+					alreadyCleaned = false;
+					removeOldTifSucceed = oldTiffStack.delete();
+					if (!removeOldTifSucceed) {
+						IJ.log("   Failed to remove old Tiff stack: " + oldTiffStack.getCanonicalPath());
+					}
+				}
+				File newTifStack = new File(tiffStackPath);
+				if (!newTifStack.exists()) {
+					alreadyCleaned = false;
+					saveNewTifSucceed = convertSequenceToTiffStack(fileArray[i].getCanonicalPath(), tiffStackPath);
+					if (!saveNewTifSucceed) {
+						IJ.log("   Failed to save sample-coded Tiff stack: " + tiffStackPath);
+					}
+				}
+			}
+			if (alreadyCleaned) {
+				alreadyCleanedFiles.add(fileArray[i]);
+				IJ.log(" Dataset: " + fileArray[i].getCanonicalPath() + " had already been cleaned.");
+			} else {
+				if (renameResultFileSucceed && renameResultDirSucceed && removeOldTifSucceed && saveNewTifSucceed) {
+					cleanedFiles.add(fileArray[i]);
+					IJ.log(" Clean up completed.");
+				} else {
+					notCleanedFiles.add(fileArray[i]);
+				}
 			}
 		}
-		
-		//2.5 open and convert all image sequence to tiff stack
-		
-		/*
-		 * check first if result folder exist
-		 * check if tiff stack exist
-		 * remove any pre-exist tiff stacks (so bg-corrected should not be exist)
-		 * calibrate image
-		 * 
-		 * 
-		 * 
-		 * 
-		 */
-		
-		//3 get sample code for each image sequence
-		//4 generate full path to save tiff image stack
+		// create log window to summarize operation
+		IJ.log("\nClean Up Summary:\n\nAlready cleaned datasets:");
+		for (File f : alreadyCleanedFiles) {
+			IJ.log("   " + f.getCanonicalPath());
+		}
+		IJ.log("\nCleaned datasets:");
+		for (File f : cleanedFiles) {
+			IJ.log("   " + f.getCanonicalPath());
+		}
+		IJ.log("\nNot cleaned datasets:");
+		for (File f : notCleanedFiles) {
+			IJ.log("   " + f.getCanonicalPath());
+		}
 	}
 	
 	public static void batchConvertImageSequenceToTiffStack(
@@ -130,17 +188,6 @@ public class BatchProcessor implements PlugIn {
 			
 			
 		}
-		
-	}
-	
-	public static void batchCalibration () {
-		
-	}
-
-	public static void batchPreProcessing () {
-		
-	}
-	public static void batchGetResult () {
 		
 	}
 	
@@ -244,7 +291,6 @@ public class BatchProcessor implements PlugIn {
 					try {
 						f = new File(dir.getCanonicalPath() + File.separator + name);
 					} catch (IOException e) {
-						// TODO Auto-generated catch block
 						e.printStackTrace();
 					}
 				if (f==null) return false;	// if file not exist
@@ -318,7 +364,6 @@ public class BatchProcessor implements PlugIn {
 				try {
 					f = new File(dir.getCanonicalPath() + File.separator + name);
 				} catch (IOException e) {
-					// TODO Auto-generated catch block
 					e.printStackTrace();
 				}
 				if (f == null) return false;	//not accept empty file
@@ -405,7 +450,7 @@ public class BatchProcessor implements PlugIn {
 			String[] inputStrArray
 			) {
 				
-			List<Integer> maskIdxList = new ArrayList<Integer>();
+			//List<Integer> maskIdxList = new ArrayList<Integer>();
 	
 
 			return null;
@@ -506,6 +551,7 @@ public class BatchProcessor implements PlugIn {
 		// prepare file list to store selected files
 		List<File> files = new ArrayList<File>();
 		// fill file list with selected file format
+		IJ.showStatus("   Locating RSOM image stacks...");
 		switch (format) {
 		case 0:
 			files.addAll(getTiffStackAsList (rootDir, true, includes, excludes));
@@ -518,37 +564,41 @@ public class BatchProcessor implements PlugIn {
 			files.addAll(getImageSequenceAsList (rootDir, true, includes, excludes));
 			break;
 		}
-
+		
 		// generate a file array for later operations
 		File[] fileArray = files.toArray(new File[files.size()]);
-
+		IJ.showStatus("     Located " + String.valueOf(files.size()) + " images.");
 		// get selected file paths into a string list (with "\n" separation) for display and user confirmation
 		ArrayList<String> pathOfSelectedFiles = new ArrayList<String>();
+		//pathOfSelectedFiles.add("   Begin Of File List." + "\n" + "\n");
 		for (int i=0; i<files.size(); i++) {
 			try {
-				pathOfSelectedFiles.add(files.get(i).getCanonicalPath() + "\n");
+				pathOfSelectedFiles.add(String.valueOf(i+1)+ ": " + files.get(i).getCanonicalPath() + "\n");
 			} catch (IOException e) {
 				e.printStackTrace();
 			}
 		}
-		Collections.shuffle(pathOfSelectedFiles);
-		pathOfSelectedFiles.add("\n " + "\n " + "   End Of File List." + "\n");
-		int displayLength = 20;
-		int rooling = 0;
+		//Collections.shuffle(pathOfSelectedFiles);
+		//pathOfSelectedFiles.add("\n " + "\n " + "   End Of File List." + "\n");
+		final int displayLength = (int) (10 * (Math.floor(Toolkit.getDefaultToolkit().getScreenSize().getHeight()/200)-2));
+		//IJ.log("displayLength: " + String.valueOf(displayLength));
+		int pageLength = (int)(Math.ceil((double)pathOfSelectedFiles.size()/displayLength));
+		int pageNumber = 0;
 		String displayFileList = "";
 		boolean userNotConfirmed = true;
 		boolean yesPressed = false;
 		while (userNotConfirmed) {
-			if (rooling<pathOfSelectedFiles.size()) {
-				displayFileList = "";
+			displayFileList = "";
+			pageNumber = pageNumber%pageLength;
+			int i;
+			for (i= displayLength*pageNumber; i<displayLength*(pageNumber+1); i++) {
+				if (i >= pathOfSelectedFiles.size())	break;
+				else displayFileList += pathOfSelectedFiles.get(i);
 			}
-			for (int i=0; i<displayLength; i++) {
-				if (rooling>=pathOfSelectedFiles.size())	break;
-				else displayFileList += pathOfSelectedFiles.get(rooling);
-				rooling++;
-			}
-			
-			YesNoCancelDialog userConfirmDialog = new YesNoCancelDialog(IJ.getInstance(), "Selected files", displayFileList, "Proceed", "Display some other random files");
+			//YesNoCancelDialog userConfirmDialog = new YesNoCancelDialog(IJ.getInstance(), "Selected files", displayFileList, "Proceed", "Display some other random files");
+			String dialogTitle = String.valueOf(displayLength*pageNumber+1) + " ~ " + String.valueOf(i) + " of total " + String.valueOf(files.size()) + " selected files";
+			pageNumber++;
+			YesNoCancelDialog userConfirmDialog = new YesNoCancelDialog(IJ.getInstance(), dialogTitle, displayFileList, "Proceed", "Next...");
 			if (userConfirmDialog.yesPressed()) {
 				yesPressed = true;
 				userNotConfirmed = false;
@@ -564,35 +614,70 @@ public class BatchProcessor implements PlugIn {
 		// Now we can do the batch operation based on the file list
 		switch (operation) {
 		case 0:	// Clean Up Datasets
+			/* clean up procedure:	as of 2019.04.09
+			 * 1,	rename sequence with sample code
+			 * 2,	convert sequence to tiff
+			 * 3, 	rename result folder and content inside
+			 * 4,	for selection3D.zip created before 2019.03.28, rename it to manualROI.zip
+			 * 5,	report succeeded and failed datasets in ImageJ log
+			 */
 			try {
 				cleanDatasets(fileArray);
 			} catch (IOException e) {
-				// TODO Auto-generated catch block
-				IJ.log("error operating file!");
+				IJ.log(" Error opening/editing file!");
 			}
 			break;
-		case 1:	// Vessel diameter analysis
-			RSOM_Vessel_Analysis.batchRun(fileArray, 0);
-			
+		case 1:	// Vessel diameter analysis: Complete process
+			try {
+				RSOM_Vessel_Analysis.batchRun(fileArray, 1);
+			} catch (IOException e) {
+				e.printStackTrace();
+			}
 			break;
-		case 2:	// Vessel diameter analysis with different parameters
-			
+		case 2:	// Vessel diameter analysis: Generate mask
+			try {
+				RSOM_Vessel_Analysis.batchRun(fileArray, 2);
+			} catch (IOException e) {
+				e.printStackTrace();
+			}
 			break;
-		case 3:	// Only generate mask, diameter, and object images
-			RSOM_Vessel_Analysis.batchRun(fileArray, 1);
-			
+		case 3:	// Vessel diameter analysis: Get Analysis Result
+			try {
+				RSOM_Vessel_Analysis.batchRun(fileArray, 3);
+			} catch (IOException e) {
+				e.printStackTrace();
+			}
 			break;
-		case 4:	// Get Analysis Result
-			
+		case 4:	// Vessel diameter analysis: Different parameters
+			try {
+				RSOM_Vessel_Analysis.batchRunWithDifferentParameters(fileArray);
+			} catch (IOException e) {
+				e.printStackTrace();
+			}
 			break;
 		case 5:	// Calibrate Images
 			calibrateImages(fileArray);
 			break;
-		case 6:	// Smooth 3D selection
-			
+		case 6:	// Draw Manual ROI
+			try {
+				drawManaulRoi(fileArray);
+			} catch (IOException e) {
+				e.printStackTrace();
+			}
 			break;
-		case 7: // Create projection images
-			
+		case 7:	// Smooth 3D selection
+			try {
+				SmoothSelection3D.batchRun(fileArray);
+			} catch (IOException e) {
+				e.printStackTrace();
+			}
+			break;
+		case 8: // Create projection images
+			try {
+				CreateProjectionImages.batchRun(fileArray);
+			} catch (IOException e) {
+				e.printStackTrace();
+			}
 			break;
 		}
 		
@@ -607,12 +692,20 @@ public class BatchProcessor implements PlugIn {
 			File imageSequence
 			) throws IOException {
 		String fileName = imageSequence.getCanonicalPath();
-		int beginIdx = fileName.lastIndexOf("R_");
-		if (beginIdx == -1) return null;
-		return fileName.substring(beginIdx,beginIdx+8);
+		int timeCodeBeginIdx = fileName.lastIndexOf("R_");
+		if (timeCodeBeginIdx == -1) return null;
+
+		int dateCodeBeginIdx = fileName.indexOf("201");
+		if (dateCodeBeginIdx == -1) return null;
+		
+		String timeCode = fileName.substring(timeCodeBeginIdx+2,timeCodeBeginIdx+8);
+		String dateCode = fileName.substring(dateCodeBeginIdx,dateCodeBeginIdx+8);
+		
+		return ("R_"+timeCode+"_"+dateCode);
+		
 	}
 	
-	public static void convertSequenceToTiffStack (
+	public static boolean convertSequenceToTiffStack (
 			String sequencePath,
 			String tiffSavePath
 			) {
@@ -625,41 +718,120 @@ public class BatchProcessor implements PlugIn {
 			imp.getCalibration().setUnit("micron");
 		}	
 		FileSaver fs = new FileSaver(imp);
-		fs.saveAsTiffStack(tiffSavePath);
+		Boolean succeed = fs.saveAsTiffStack(tiffSavePath);
 		imp.close();
 		System.gc();
+		return succeed;
 	}
 
 	public static void calibrateImages (
 			File[] tiffImageStackFiles
 			) {
+		// get user input dialog
+		GenericDialogPlus gd = new GenericDialogPlus("Calibrate images");
+		gd.setInsets(0,0,0);
+		gd.addNumericField("X:", 20, 1);
+		gd.setInsets(0,0,0);
+		gd.addNumericField("Y:", 20, 1);
+		gd.setInsets(0,0,0);
+		gd.addNumericField("Z:", 4, 1);
+		gd.setInsets(0,0,0);
+		gd.addStringField("Unit:", "micron");
+		gd.showDialog();
+		//boolean doNoSampleCode = gd.getNextBoolean();
+		double voxelSizeX = gd.getNextNumber();
+		double voxelSizeY = gd.getNextNumber();
+		double voxelSizeZ = gd.getNextNumber();
+		String calUnit = gd.getNextString();
+		if (gd.wasCanceled())	return;
+		
 		for (File f : tiffImageStackFiles) {
 			if (!f.exists()) continue;
 			String filePath=null;
 			try {
 				filePath = f.getCanonicalPath();
 			} catch (IOException e) {
-				// TODO Auto-generated catch block
 				IJ.log("Can not open file: " + filePath);
 				continue;
 			}
+			IJ.log("Calibrating image file: " + filePath);
 			if (filePath.endsWith("tif") || filePath.endsWith("tiff")) {
 				ImagePlus imp = IJ.openImage(filePath);
 				Calibration cal = imp.getCalibration();
 				if (!cal.scaled()) {
-					imp.getCalibration().pixelWidth = 20;
-					imp.getCalibration().pixelHeight = 20;
-					imp.getCalibration().pixelDepth = 4;
-					imp.getCalibration().setUnit("micron");
+					imp.getCalibration().pixelWidth = voxelSizeX;
+					imp.getCalibration().pixelHeight = voxelSizeY;
+					imp.getCalibration().pixelDepth = voxelSizeZ;
+					imp.getCalibration().setUnit(calUnit);
 				}	
 				FileSaver fs = new FileSaver(imp);
 				fs.saveAsTiffStack(filePath);
 				imp.close();
 				System.gc();
+				IJ.log("   Calibration completed.");
 			}
 		}
 	}
 	
+	public static void drawManaulRoi (
+			File[] fileArray
+			) throws IOException {
+		RoiManager rm = RoiManager.getInstance2();
+		if (rm == null) rm  = new RoiManager();
+		else rm.reset();
+		rm.setVisible(true);
+		
+		ImagePlus ori = null;
+		ImagePlus mask = null;
+		for (File f : fileArray) {
+			rm.setVisible(false);
+			rm.reset();
+			RsomImageStack RIS = new RsomImageStack(f.getCanonicalPath());
+			ori = RIS.RSOMImg;
+			if (ori == null) {
+				IJ.log(" RSOM image of File: " + f.getCanonicalPath() + " can not be located (skip).");
+				continue;
+			}
+			if (!RIS.resultDirExist) {
+				CheckAndSaveResult.makeResultPaths(RIS);
+				IJ.log("  File: "+ f.getCanonicalPath() + " doesn't have result folder yet.");
+				
+				IJ.log("   An empty result folder has been created with the current operation.");
+			} else {
+				if (new File(RIS.maskPath).exists()) {
+					mask = IJ.openImage(RIS.maskPath);
+				} else {
+					IJ.log("   Mask image can not be located.");
+				}
+				if (new File(RIS.manualROIPath).exists()) {
+					rm.runCommand("Open", RIS.manualROIPath);
+				}
+			}
+			IJ.run(ori, "Enhance Contrast", "saturated=0.35");
+			//IJ.run(ori, "Set... ", "zoom=200");
+			ori.show();
+			ori.getWindow().setLocationAndSize(100, 250, ori.getWidth(), ori.getHeight());
+			
+			if (mask != null) {
+				//IJ.run(mask, "Set... ", "zoom=200"); 
+				mask.show();
+				mask.getWindow().setLocationAndSize(150 + ori.getWidth(), 250, ori.getHeight(), ori.getHeight());
+				
+				rm.setLocation(200 + ori.getWidth()*2, 400);
+				IJ.run("Synchronize Windows", "");
+			} else {
+				rm.setLocation(150 + ori.getWidth(), 400);
+			}
+			rm.setVisible(true);
+			
+			WaitForUserDialog w = new WaitForUserDialog("Selection3D","select and save to ROI Manager\nwhen finished press OK.");
+			w.setBounds(rm.getLocation().x, 250, 400, 100);
+			w.show();
+			if (w.escPressed())
+			rm.runCommand("Save", RIS.manualROIPath);
+		}
+
+	}
 	public static void main(final String... args) throws Exception {
 
 

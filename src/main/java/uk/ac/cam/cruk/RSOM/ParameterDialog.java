@@ -8,9 +8,16 @@ import ij.WindowManager;
 import ij.plugin.FolderOpener;
 import ij.plugin.PlugIn;
 
+import java.awt.Color;
 //import java.awt.Color;
 import java.awt.Font;
 import java.io.File;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.LinkedHashSet;
+import java.util.Set;
 
 import org.scijava.prefs.DefaultPrefService;
 //import org.scijava.prefs.PrefService;
@@ -26,8 +33,8 @@ public class ParameterDialog implements PlugIn {
 	protected static boolean getActiveImage = false;
 	protected static int activeImgNum = -1;
 	protected static String filePath;
-	protected static Boolean doCalibration = true;
-	protected static double voxelSizeX = 20;
+	protected Boolean doCalibration = true;
+	protected double voxelSizeX = 20;
 	protected static double voxelSizeY = 20;
 	protected static double voxelSizeZ = 4;
 	protected static String calUnit = "micron";
@@ -35,6 +42,9 @@ public class ParameterDialog implements PlugIn {
 	protected static boolean doSubtractBackground = true;
 	protected static double bgRadius = 5;
 	
+	protected String[] methods = new String[] {"Default","Huang","Intermodes","IsoData",
+			"IJ_IsoData","Li","MaxEntropy","Mean","MinError","Minimum","Moments",
+			"Otsu","Percentile","RenyiEntropy","Shanbhag","Triangle","Yen"};
 	protected static int autoOrManualThreshold = 0;
 	protected static boolean doManualThreshold = false;
 	protected static String autoMethod = "Moments";
@@ -45,7 +55,7 @@ public class ParameterDialog implements PlugIn {
 	protected static int roiOrWholeImage = 0;
 	protected static boolean doRoi = true;
 	protected static boolean loadRoi = false;
-	protected static String roiPath;
+	protected static String selectionPath;
 	
 	protected static boolean doSmooth = true;
 	protected static double smoothLv = 15;
@@ -59,6 +69,48 @@ public class ParameterDialog implements PlugIn {
 	protected static boolean saveROI = true;
 	protected static boolean saveObjMap = true;
 	protected static boolean saveDiameterMap = true;
+	
+	// parameter for batch processing
+	protected static boolean doNoSampleCode = false;
+	protected static double bgRadiusMin = 5;
+	protected static double bgRadiusStep = 5;
+	protected static double bgRadiusMax = 5;
+	protected static String csvMethodString = "mom,otsu";
+	protected static double mdRadiusMin = 2.5;
+	protected static double mdRadiusStep = 1;
+	protected static double mdRadiusMax = 2.5;
+	
+	protected ArrayList<Double> bgRadiuses;
+	protected ArrayList<String> autoMethods;
+	protected ArrayList<Double> mdRadiuses;
+	protected ArrayList<String> methodNames;
+	protected ArrayList<methodSet> methodSets;
+	
+	protected class methodSet {
+		public double bgRadius;
+		public String method;
+		public double mdRadius;
+		public String methodAlias;
+		// default constructor
+		public methodSet(double bgRadius, String method, double mdRadius, String methodAlias) {
+			this.bgRadius = bgRadius;
+			this.method = method;
+			this.mdRadius = mdRadius;
+			this.methodAlias = methodAlias;
+		}
+		
+		@Override
+	    public int hashCode() {
+	        return methodAlias.hashCode();
+	    }
+	    @Override
+	    public boolean equals(Object obj) {
+	        if (!(obj instanceof methodSet))
+	            return false;
+	        methodSet m = (methodSet) obj;
+	        return m.methodAlias.equals(methodAlias);
+	    }
+	}
 	
 	public String[] activeImageList() {
 		/*
@@ -105,7 +157,7 @@ public class ParameterDialog implements PlugIn {
 		}
 	}
 	
-	public static void main() {
+	public void main() {
 		
 		if (IJ.versionLessThan("1.52f")) System.exit(0);
 		
@@ -128,7 +180,7 @@ public class ParameterDialog implements PlugIn {
 		
 		roiOrWholeImage = prefs.getInt(Integer.class, "persistedDouble", autoOrManualThreshold);
 		loadRoi = prefs.getBoolean(Boolean.class, "persistedBoolean", loadRoi);
-		roiPath = prefs.get(String.class, "persistedString", roiPath);
+		selectionPath = prefs.get(String.class, "persistedString", selectionPath);
 		doSmooth = prefs.getBoolean(Boolean.class, "persistedBoolean", doSmooth);
 		smoothLv = prefs.getDouble(Double.class, "persistedDouble", smoothLv);
 		downSizeLv = prefs.getDouble(Double.class, "persistedDouble", downSizeLv);
@@ -144,6 +196,36 @@ public class ParameterDialog implements PlugIn {
 		//addDialog();
 		ParameterDialog pd = new ParameterDialog();
 		pd.run(null);
+		
+		prefs.put(String.class, "persistedString", filePath);
+		prefs.put(Boolean.class, "persistedBoolean", doCalibration);
+		prefs.put(Double.class, "persistedDouble", voxelSizeX);
+		prefs.put(Double.class, "persistedDouble", voxelSizeY);
+		prefs.put(Double.class, "persistedDouble", voxelSizeZ);
+		prefs.put(String.class, "persistedString", calUnit);
+		
+		prefs.put(Boolean.class, "persistedBoolean", doSubtractBackground);
+		prefs.put(Double.class, "persistedDouble", bgRadius);
+		
+		prefs.put(Integer.class, "persistedDouble", autoOrManualThreshold);
+		prefs.put(String.class, "persistedString", autoMethod);
+		prefs.put(Boolean.class, "persistedBoolean", doMedianFilter);
+		prefs.put(Double.class, "persistedDouble", mdFtRadius);
+		
+		prefs.put(Integer.class, "persistedDouble", autoOrManualThreshold);
+		prefs.put(Boolean.class, "persistedBoolean", loadRoi);
+		prefs.put(String.class, "persistedString", selectionPath);
+		prefs.put(Boolean.class, "persistedBoolean", doSmooth);
+		prefs.put(Double.class, "persistedDouble", smoothLv);
+		prefs.put(Double.class, "persistedDouble", downSizeLv);
+		prefs.put(Double.class, "persistedDouble", shrinkSize);
+		
+		prefs.put(Integer.class, "persistedDouble", connIdx);
+		prefs.put(Integer.class, "persistedDouble", nBins);
+		prefs.put(Boolean.class, "persistedBoolean", saveMask);
+		prefs.put(Boolean.class, "persistedBoolean", saveROI);
+		prefs.put(Boolean.class, "persistedBoolean", saveObjMap);
+		prefs.put(Boolean.class, "persistedBoolean", saveDiameterMap);
 	}
 	
 	public Boolean addDialog() {
@@ -179,9 +261,6 @@ public class ParameterDialog implements PlugIn {
 		gd.addToSameRow();
 		gd.addNumericField("radius:", bgRadius, 1, 3, "pixel");
 		String[] autoOrManual = new String[] {"Auto", "Manual"};
-		String[] methods = new String[] {"Default","Huang","Intermodes","IsoData",
-			"IJ_IsoData","Li","MaxEntropy","Mean","MinError","Minimum","Moments",
-			"Otsu","Percentile","RenyiEntropy","Shanbhag","Triangle","Yen"};
 		gd.setInsets(0,0,0);
 		gd.addChoice("Threshoding:", autoOrManual, autoOrManual[autoOrManualThreshold]);
 		gd.addToSameRow();
@@ -199,12 +278,13 @@ public class ParameterDialog implements PlugIn {
 		gd.addChoice("ROI:", roiOption, roiOption[roiOrWholeImage]);
 		gd.setInsets(0,159,0);
 		gd.addCheckbox("Load 3D selection file from disk", loadRoi);
-		gd.addDirectoryOrFileField("_selection3D.zip:", roiPath);
+		gd.addDirectoryOrFileField("_selection3D.zip:", selectionPath);
 		gd.setInsets(0,159,0);
 		gd.addCheckbox("Smooth 3D selection", doSmooth);
 		gd.addSlider("Smoothing Level(%):", 0, 100, smoothLv);
 		gd.addSlider("Down-sizing Level (%):", 0, 80, downSizeLv);
-		gd.addNumericField("Shrink ROI by:", shrinkSize, 1, 4, "micron");
+		gd.addSlider("Shrink-Enlarge ROI (µm)", -2000, 2000, shrinkSize);
+		//gd.addNumericField("Shrink ROI by:", shrinkSize, 1, 4, "micron");
 		
 		// result saving option group
 		String saveMessage = "Result saving options:";
@@ -221,8 +301,8 @@ public class ParameterDialog implements PlugIn {
 		gd.addCheckboxGroup(row, column, labels, states);
 		String html = "<html>"
 				 +"<h2>RSOM blood vessel analysis (ImageJ plugin)</h2>"
-				 +" version: 1.5.4<br>"
-				 +" date: 2019.03.26<br>"
+				 +" version: 1.6.2<br>"
+				 +" date: 2019.04.09<br>"
 				 +" author: Ziqiang Huang (Ziqiang.Huang@cruk.cam.ac.uk)<br><br>"
 				 +"<h3>Usage:</h3>"
 				 +"<&nbsp>Choose RSOM image stack from disk or from active<br>"
@@ -273,7 +353,7 @@ public class ParameterDialog implements PlugIn {
 		if (roiOrWholeImage == 0) doRoi = true;
 		else	doRoi = false;
 		loadRoi = gd.getNextBoolean();
-		roiPath = gd.getNextString();
+		selectionPath = gd.getNextString();
 		
 		doSmooth = gd.getNextBoolean();
 		smoothLv = gd.getNextNumber();
@@ -296,4 +376,246 @@ public class ParameterDialog implements PlugIn {
 		
 		return true;
 	}
+	
+	public Boolean addDialogBatch() {
+		
+		final Font highlightFont = new Font("Helvetica", Font.BOLD, 12);
+		final Color highlightColor = Color.BLUE;
+		
+		GenericDialogPlus gd = new GenericDialogPlus("RSOM vessel analysis - generate mask with different parameter sets");
+		
+		// File open options
+		String processMessage = "Pre-processing options:";
+		gd.setInsets(10,0,0);
+		gd.addMessage(processMessage, highlightFont);
+		gd.setInsets(0,149,0);
+		gd.addCheckbox("Process data with unrecognized sample code", doNoSampleCode);
+		gd.setInsets(0,149,0);
+		gd.addCheckbox("Calibrate image", doCalibration);
+		gd.setInsets(0,0,0);
+		gd.addNumericField("X:", voxelSizeX, 1);
+		gd.setInsets(0,0,0);
+		gd.addNumericField("Y:", voxelSizeY, 1);
+		gd.setInsets(0,0,0);
+		gd.addNumericField("Z:", voxelSizeZ, 1);
+		gd.setInsets(0,0,0);
+		gd.addStringField("Unit:", calUnit);
+		//	pre-processing option group
+		String parameterMessage = "Parameter Sets:";
+		gd.setInsets(10,0,0);
+		gd.addMessage(parameterMessage, highlightFont, highlightColor);
+		gd.setInsets(0,149,0);
+		gd.addCheckbox("Subtract background", doSubtractBackground);
+		gd.addNumericField("radius min:", bgRadiusMin, 1, 3, "pixel");
+		gd.addNumericField("radius step:", bgRadiusStep, 1, 3, "pixel");
+		gd.addNumericField("radius max:", bgRadiusMax, 1, 3, "pixel");
+
+		//gd.setInsets(0,0,0);
+		//gd.addChoice("method:", methods, autoMethod);
+		gd.addStringField("Threshold methods:",  csvMethodString, 15);
+		gd.setInsets(0,149,0);
+		gd.addCheckbox("Smooth mask (median filter)", doMedianFilter);
+		gd.addNumericField("radius min:", mdRadiusMin, 1, 3, "pixel");
+		gd.addNumericField("radius step:", mdRadiusStep, 1, 3, "pixel");
+		gd.addNumericField("radius max:", mdRadiusMax, 1, 3, "pixel");
+		
+		//	3D selection option group
+		String RoiMessage = "Selection (ROI) options:";
+		gd.setInsets(10,0,0);
+		gd.addMessage(RoiMessage, highlightFont);
+		String[] roiOption = new String[] {"Selected areas", "Whole image"};
+		gd.setInsets(0,0,0);
+		gd.addChoice("ROI:", roiOption, roiOption[roiOrWholeImage]);
+		gd.setInsets(0,149,0);
+		gd.addCheckbox("Load 3D selection file from result folder", loadRoi);
+		gd.setInsets(0,149,0);
+		gd.addCheckbox("Smooth 3D selection", doSmooth);
+		gd.addSlider("Smoothing Level(%):", 0, 100, smoothLv);
+		gd.addSlider("Down-sizing Level (%):", 0, 80, downSizeLv);
+		gd.addSlider("Shrink-Enlarge ROI (µm)", -2000, 2000, shrinkSize);
+		
+		//	help html text
+		String html = "<html>"
+				 +"<h2>RSOM blood vessel analysis (ImageJ plugin)</h2>"
+				 +"    Batch processing with different parameters<br>"
+				 +" version: 1.6.2<br>"
+				 +" date: 2019.04.09<br>"
+				 +" author: Ziqiang Huang (Ziqiang.Huang@cruk.cam.ac.uk)<br><br>"
+				 +"<h3>Usage:</h3>"
+				 +"<&nbsp>Choose a root folder containing RSOM image tif stacks.<br>"
+				 +" <&nbsp>Unique sample code will be recognized as e.g.: R_154837_20180312<br>"
+				 + "which is \"R_\" followed by time code, underscore, and date code.<br>"
+				 +"<br><&nbsp>Different combination of parameters (parameter sets)<br>"
+				 +"will be taken to create binary mask(s) of the stack.<br>"
+				 +" <&nbsp>For background subtraction and median filtering<br>"
+				 +" , user need to specify the minimum and maximum radius<br>"
+				 +" , and step size between them.<br>"
+				 +"<&nbsp>For thresholding methods<br>"
+				 +" , user need to type in keywords of the method choosen<br>"
+				 +" , and separate different method keywords by comma.<br>"
+				 +"<br><&nbsp>Be aware if the keywords is not specific enough<br>"
+				 +" , all methods containing that keywords will be applied.<br>"
+				 +"<br><&nbsp>Be careful with the range and number of parameters<br>"
+				 +" , as the final number of results will be a permutation of all parameters given.<br>"
+				 +"    i.e.: 2 background subtration radius, 2 thresholding method<br>"
+				 +" , and 2 median filter raidus will result in 8 masks.<br>"
+				 +"<br><&nbsp>The generated mask image will be saved to result folder.<br>"
+				 +" , with parameter-set as identifier in the end of the mask file name.<br>";
+		gd.addHelp(html);
+		gd.showDialog();
+		
+		doNoSampleCode = gd.getNextBoolean();
+		doCalibration = gd.getNextBoolean();
+		voxelSizeX = gd.getNextNumber();
+		voxelSizeY = gd.getNextNumber();
+		voxelSizeZ = gd.getNextNumber();
+		calUnit = gd.getNextString();
+		
+		doSubtractBackground = gd.getNextBoolean();
+		bgRadiusMin = gd.getNextNumber();
+		bgRadiusStep = gd.getNextNumber();
+		bgRadiusMax = gd.getNextNumber();
+		
+		csvMethodString = gd.getNextString();
+		
+		doMedianFilter = gd.getNextBoolean();
+		mdRadiusMin = gd.getNextNumber();
+		mdRadiusStep = gd.getNextNumber();
+		mdRadiusMax = gd.getNextNumber();
+		
+		roiOrWholeImage = gd.getNextChoiceIndex();
+		if (roiOrWholeImage == 0) doRoi = true;
+		else	doRoi = false;
+		
+		doSmooth = gd.getNextBoolean();
+		smoothLv = gd.getNextNumber();
+		downSizeLv = gd.getNextNumber();
+		shrinkSize = gd.getNextNumber();
+		
+		if (gd.wasCanceled())	return false;
+		
+		
+		
+		//HashMap<Double, String, Double, String> methodSets = new HashMap<Double, String, Double, String>();
+		bgRadiuses = parseDoubles(bgRadiusMin, bgRadiusMax, bgRadiusStep);
+		autoMethods = parseThresholdMethods(csvMethodString);
+		mdRadiuses = parseDoubles(mdRadiusMin, mdRadiusMax, mdRadiusStep);
+		methodNames = getMethodsNames (doSubtractBackground, bgRadiuses, autoMethods,doMedianFilter, mdRadiuses);
+		
+		methodSets = getMethodSets (doSubtractBackground, bgRadiuses, autoMethods,doMedianFilter, mdRadiuses);
+		//methodSets = 
+		return true;
+	}
+	
+	public ArrayList<Double> parseDoubles (
+			double min,
+			double max,
+			double step
+			) {
+		ArrayList<Double> values = new ArrayList<Double>();
+		double value = min;
+		while (value<max) {
+			values.add(value);
+			value += step;
+		}
+		values.add(max);
+		return values;
+	}
+	
+	public ArrayList<String> parseStrings (
+			String csvString
+			) {
+		return new ArrayList<String>(Arrays.asList(csvString.split(",")));
+	}
+	
+	public ArrayList<String> parseThresholdMethods (
+			String methodStrings
+			) {
+		ArrayList<String> methodParts = parseStrings(methodStrings);
+		ArrayList<String> method = new ArrayList<String>();
+
+		for (int i=0; i<methods.length; i++) {
+			for (String parts : methodParts) {
+				if (methods[i].toLowerCase().contains(parts.toLowerCase())) {
+					method.add(methods[i]);
+					break;
+				}
+			}
+		}
+		return method;
+	}
+	
+	public ArrayList<String> getMethodsNames (
+			Boolean doBackground,
+			ArrayList<Double> bgRadiuses,
+			ArrayList<String> autoMethods,
+			Boolean doMedianFilter,
+			ArrayList<Double> mdRadiuses
+			) {
+		
+		ArrayList<String> methodNames = new ArrayList<String>();
+		String bgString = null;
+		String thString = null;
+		String mdString = null;
+		
+		for (double bgRadius : bgRadiuses) {
+			if (!doBackground) bgString = "sub0,0";
+			else	bgString = "sub" + String.valueOf(bgRadius).replace(".",",");
+			for (String autoMethod : autoMethods) {
+				thString = autoMethod.substring(0,3).toUpperCase();
+				for (double mdRadius : mdRadiuses) {
+					if (!doMedianFilter) mdString = "med0,0";
+					else	mdString = "med" + String.valueOf(mdRadius).replace(".",",");
+					methodNames.add(bgString + thString + mdString);
+				}
+			}
+		}
+		
+		LinkedHashSet<String> hashSet = new LinkedHashSet<>(methodNames);
+        ArrayList<String> methodNamesWithoutDuplicates = new ArrayList<>(hashSet);
+		return methodNamesWithoutDuplicates;
+	}
+	
+	public ArrayList<methodSet> getMethodSets (
+			Boolean doBackground,
+			ArrayList<Double> bgRadiuses,
+			ArrayList<String> autoMethods,
+			Boolean doMedianFilter,
+			ArrayList<Double> mdRadiuses
+			) {
+		ArrayList<methodSet> methodSets = new ArrayList<methodSet>();
+		
+		String bgString = null;
+		String thString = null;
+		String mdString = null;
+		
+		for (double bgRadius : bgRadiuses) {
+			if (!doBackground) {
+				bgRadius = 0;
+				bgString = "sub0,0";
+			} else	{
+				bgString = "sub" + String.valueOf(bgRadius).replace(".",",");
+			}
+			for (String autoMethod : autoMethods) {
+				thString = autoMethod.substring(0,3).toUpperCase();
+				for (double mdRadius : mdRadiuses) {
+					if (!doMedianFilter) {
+						mdRadius = 0;
+						mdString = "med0,0";
+					} else	{
+						mdString = "med" + String.valueOf(mdRadius).replace(".",",");
+					}
+					String methodAlias = bgString + thString + mdString;
+					methodSet newMethod = new methodSet(bgRadius, autoMethod, mdRadius, methodAlias);
+					methodSets.add(newMethod);
+				}
+			}
+		}
+		
+		Set<methodSet> uniqueElements = new HashSet<methodSet>(methodSets);
+		methodSets.clear();
+		methodSets.addAll(uniqueElements);
+		return methodSets;
+	}
+	
 }
