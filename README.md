@@ -6,7 +6,7 @@ RSOM_Vessel_Analysis-#.jar
 Download this file and add to plugin folder of Fiji
 
 
-html = "<html>"
+"<html>"
 				 +"<h2>RSOM blood vessel analysis (ImageJ plugin)</h2>"
 				 +" version: 1.6.2<br>"
 				 +" date: 2019.04.09<br>"
