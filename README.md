@@ -4,6 +4,7 @@ A Fiji plugin to analyze optoacoustic images of blood vessel
 To download the compiled plugin, go to target and locate the latest jar file:
 RSOM_Vessel_Analysis-#.jar
 Download this file and add to plugin folder of Fiji
+Refers to the <help> button for more information when running the plugin.
 
 <html>
  <h2>RSOM blood vessel analysis (ImageJ plugin)</h2>
@@ -33,3 +34,5 @@ Download this file and add to plugin folder of Fiji
   might be skipped.<br>
  <br><&nbsp>Known issue: diameter map only take isotropic voxel as input.<br>
  <br><&nbsp>Known issue: diameter map does not return system memory (4 times the input file).<br>
+   
+   
