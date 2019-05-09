@@ -1,3 +1,9 @@
+Due to management issue: this repository has to be made private and migrated to github.com/hzqfox/RSOM-Vessel-Analysis/
+Contact 
+<microscopy(at)cruk.cam.ac.uk> or
+<bohndiek(at)cruk.cam.ac.uk>
+for access to the source code or more technical detail
+
 # RSOM-Vessel-Analysis
 A Fiji plugin to analyze optoacoustic images of blood vessel
 
