@@ -14,12 +14,12 @@
 
 	<groupId>cruk.cam.ac.uk</groupId>
 	<artifactId>RSOM_Vessel_Analysis</artifactId>
-	<version>1.6.2</version>
+	<version>1.7.3</version>
 
 	<name>RSOM_Vessel_Analysis</name>
 	<description>An Fiji plugin to analyze RSOM images.</description>
 	<url>http://mycompany.com/imagej/process-pixels/</url>
-	<inceptionYear>2018</inceptionYear>
+	<inceptionYear>2020</inceptionYear>
 	<organization>
 		<name>CRUK</name>
 		<url>http://cruk.cam.ac.uk</url>
@@ -33,9 +33,9 @@
 
 	<developers>
 		<developer>
-			<id>ctrueden</id>
-			<name>Curtis Rueden</name>
-			<url>http://imagej.net/User:Rueden</url>
+			<id>hzqfox</id>
+			<name>Ziqiang Huang</name>
+			<url>https://gitlab.</url>
 			<roles>
 				<role>lead</role>
 				<role>developer</role>
@@ -46,37 +46,6 @@
 			</roles>
 		</developer>
 	</developers>
-	<contributors>
-		<contributor>
-			<name>Johannes Schindelin</name>
-			<url>http://imagej.net/User:Schindelin</url>
-			<roles><role>founder</role></roles>
-			<properties><id>dscho</id></properties>
-		</contributor>
-		<contributor>
-			<name>Olivier Burri</name>
-			<url>http://imagej.net/User:Oburri</url>
-			<properties><id>lacan</id></properties>
-		</contributor>
-		<contributor>
-			<name>Mark Hiner</name>
-			<url>http://imagej.net/User:Hinerm</url>
-			<properties><id>hinerm</id></properties>
-		</contributor>
-		<contributor>
-			<name>Jules Maselbas</name>
-		</contributor>
-		<contributor>
-			<name>Kota Miura</name>
-			<url>http://imagej.net/User:Miura</url>
-			<properties><id>cmci</id></properties>
-		</contributor>
-		<contributor>
-			<name>Yili Zhao</name>
-			<url>http://imagej.net/User:Panovr</url>
-			<properties><id>panovr</id></properties>
-		</contributor>
-	</contributors>
 
 	<mailingLists>
 		<mailingList>
@@ -143,9 +112,15 @@
 		<dependency>
 		    <groupId>net.imagej</groupId>
 		    <artifactId>ij</artifactId>
-		    <version>1.52n</version>
+		    <version>1.52o</version>
 		</dependency>
 		
+		<dependency>
+		    <groupId>sc.fiji</groupId>
+		    <artifactId>Skeletonize3D_</artifactId>
+		    <version>2.1.1</version>
+		</dependency>
+
 		<dependency>
 		    <groupId>com.github.ijpb</groupId>
 		    <artifactId>MorphoLibJ</artifactId>
@@ -158,6 +133,27 @@
 			<version>4.0.0</version>
 		</dependency>
 		
+		<dependency>
+			<groupId>net.imglib2</groupId>
+			<artifactId>imglib2</artifactId>
+		</dependency>
+		<dependency>
+			<groupId>net.imglib2</groupId>
+			<artifactId>imglib2-algorithm</artifactId>
+		</dependency>
+		<dependency>
+			<groupId>net.imglib2</groupId>
+			<artifactId>imglib2-algorithm-gpl</artifactId>
+		</dependency>
+		<dependency>
+			<groupId>net.imglib2</groupId>
+			<artifactId>imglib2-ij</artifactId>
+		</dependency>
+		<dependency>
+			<groupId>net.imglib2</groupId>
+			<artifactId>imglib2-realtransform</artifactId>
+		</dependency>
+
 		<dependency>
 		    <groupId>org.scijava</groupId>
 		    <artifactId>scijava-common</artifactId>
